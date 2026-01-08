@@ -30,29 +30,19 @@ impl ExecutorState {
         }
     }
 
-    /// Check if workers should continue
-    fn should_continue(&self) -> bool {
+    /// Try to claim a slot and check if worker should continue.
+    /// Returns true if a slot was claimed and work should proceed.
+    fn increment_and_check(&self) -> bool {
         if self.stop.load(Ordering::Relaxed) {
             return false;
         }
 
-        if let Some(target) = self.target_requests {
-            let count = self.request_count.load(Ordering::Relaxed);
-            if count >= target {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    /// Increment request counter, returns true if we should continue
-    fn increment_and_check(&self) -> bool {
-        let prev = self.request_count.fetch_add(1, Ordering::Relaxed);
+        let slot = self.request_count.fetch_add(1, Ordering::Relaxed);
 
         if let Some(target) = self.target_requests {
-            if prev + 1 >= target {
+            if slot >= target {
                 self.stop.store(true, Ordering::Relaxed);
+                self.request_count.fetch_sub(1, Ordering::Relaxed);
                 return false;
             }
         }
@@ -88,7 +78,6 @@ impl Executor {
 
         println!("\nStarting benchmark with {} workers...", self.config.concurrency);
 
-        // Spawn duration timer if needed
         if let StopCondition::Duration(duration) = self.config.stop_condition {
             let state_clone = Arc::clone(&state);
             tokio::spawn(async move {
@@ -97,7 +86,6 @@ impl Executor {
             });
         }
 
-        // Spawn Ctrl+C handler
         let state_for_ctrlc = Arc::clone(&state);
         tokio::spawn(async move {
             if tokio::signal::ctrl_c().await.is_ok() {
@@ -106,7 +94,6 @@ impl Executor {
             }
         });
 
-        // Spawn worker tasks
         let mut handles = Vec::with_capacity(self.config.concurrency);
 
         for worker_id in 0..self.config.concurrency {
@@ -121,7 +108,6 @@ impl Executor {
             handles.push(handle);
         }
 
-        // Wait for all workers to complete
         for handle in handles {
             let _ = handle.await;
         }
@@ -148,7 +134,7 @@ async fn run_worker(
     config: Arc<BenchConfig>,
     state: Arc<ExecutorState>,
 ) {
-    while state.should_continue() {
+    while state.increment_and_check() {
         match client.execute(&config).await {
             Ok(response) => {
                 let status = response.status();
@@ -159,10 +145,6 @@ async fn run_worker(
             Err(e) => {
                 eprintln!("Error: {}", e);
             }
-        }
-
-        if !state.increment_and_check() {
-            break;
         }
     }
 }
