@@ -8,7 +8,7 @@ use tokio::time::interval;
 use crate::client::HttpClient;
 use crate::config::{BenchConfig, StopCondition};
 use crate::error::Result;
-use crate::metrics::{Metrics, RequestResult};
+use crate::metrics::{BenchmarkResults, Metrics, RequestResult};
 
 /// Shared state for coordinating workers
 struct ExecutorState {
@@ -75,14 +75,12 @@ impl Executor {
         }
     }
 
-    /// Run the benchmark
-    pub async fn run(&self) -> Result<()> {
+    /// Run the benchmark and return results
+    pub async fn run(&self) -> Result<BenchmarkResults> {
         let state = Arc::new(ExecutorState::new(&self.config.stop_condition));
         let start_time = Instant::now();
 
         let (tx, mut rx) = mpsc::unbounded_channel::<RequestResult>();
-
-        println!("\nStarting benchmark with {} workers...", self.config.concurrency);
 
         if let StopCondition::Duration(duration) = self.config.stop_condition {
             let state_clone = Arc::clone(&state);
@@ -102,7 +100,6 @@ impl Executor {
 
         let mut handles = Vec::with_capacity(self.config.concurrency);
 
-        // Calculate per-worker rate if rate limiting is enabled
         let rate_per_worker = self.config.rate.map(|r| {
             (r as f64 / self.config.concurrency as f64).max(1.0) as u64
         });
@@ -132,9 +129,8 @@ impl Executor {
         }
 
         let elapsed = start_time.elapsed();
-        metrics.report(elapsed);
 
-        Ok(())
+        Ok(metrics.into_results(elapsed))
     }
 }
 
@@ -147,13 +143,11 @@ async fn run_worker(
     tx: mpsc::UnboundedSender<RequestResult>,
     rate_per_worker: Option<u64>,
 ) {
-    // Set up rate limiting interval if configured
     let mut rate_interval = rate_per_worker.map(|r| {
         interval(Duration::from_micros(1_000_000 / r))
     });
 
     while state.increment_and_check() {
-        // Wait for next tick if rate limiting
         if let Some(ref mut interval) = rate_interval {
             interval.tick().await;
         }
