@@ -21,6 +21,10 @@ async fn main() {
     println!("Target: {} {:?}", config.url, config.method);
     println!("Concurrency: {}", config.concurrency);
     println!("Stop condition: {:?}", config.stop_condition);
+    
+    if let Some(rate) = &config.rate {
+        println!("Rate limit: {} req/s", rate);
+    }
 
     // Create HTTP client
     let client = match HttpClient::new(config.timeout) {
@@ -37,4 +41,6 @@ async fn main() {
         eprintln!("Benchmark failed: {}", e);
         std::process::exit(1);
     }
+
+   
 }

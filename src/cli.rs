@@ -34,6 +34,10 @@ pub struct Args {
     /// Request timeout in seconds
     #[arg(short, long, default_value_t = 30)]
     pub timeout: u64,
+
+    /// Target requests per second (rate limit)
+    #[arg(short = 'r', long)]
+    pub rate: Option<u64>,
 }
 
 #[derive(Clone, Debug, ValueEnum)]

@@ -1,8 +1,9 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
+use tokio::time::interval;
 
 use crate::client::HttpClient;
 use crate::config::{BenchConfig, StopCondition};
@@ -101,6 +102,11 @@ impl Executor {
 
         let mut handles = Vec::with_capacity(self.config.concurrency);
 
+        // Calculate per-worker rate if rate limiting is enabled
+        let rate_per_worker = self.config.rate.map(|r| {
+            (r as f64 / self.config.concurrency as f64).max(1.0) as u64
+        });
+
         for worker_id in 0..self.config.concurrency {
             let client = Arc::clone(&self.client);
             let config = Arc::clone(&self.config);
@@ -108,7 +114,7 @@ impl Executor {
             let tx = tx.clone();
 
             let handle = tokio::spawn(async move {
-                run_worker(worker_id, client, config, state, tx).await
+                run_worker(worker_id, client, config, state, tx, rate_per_worker).await
             });
 
             handles.push(handle);
@@ -139,8 +145,19 @@ async fn run_worker(
     config: Arc<BenchConfig>,
     state: Arc<ExecutorState>,
     tx: mpsc::UnboundedSender<RequestResult>,
+    rate_per_worker: Option<u64>,
 ) {
+    // Set up rate limiting interval if configured
+    let mut rate_interval = rate_per_worker.map(|r| {
+        interval(Duration::from_micros(1_000_000 / r))
+    });
+
     while state.increment_and_check() {
+        // Wait for next tick if rate limiting
+        if let Some(ref mut interval) = rate_interval {
+            interval.tick().await;
+        }
+
         let start = Instant::now();
         let status = match client.execute(&config).await {
             Ok(response) => Some(response.status().as_u16()),

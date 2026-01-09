@@ -51,6 +51,7 @@ pub struct BenchConfig {
     pub headers: HashMap<String, String>,
     pub body: Option<String>,
     pub timeout: Duration,
+    pub rate: Option<u64>,
 }
 
 impl BenchConfig {
@@ -73,6 +74,7 @@ impl BenchConfig {
             headers,
             body: args.body,
             timeout: Duration::from_secs(args.timeout),
+            rate: args.rate,
         })
     }
 }
