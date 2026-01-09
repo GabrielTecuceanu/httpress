@@ -7,6 +7,24 @@ pub struct RequestResult {
     pub status: Option<u16>,
 }
 
+/// Computed benchmark results
+#[derive(Debug, Clone)]
+pub struct BenchmarkResults {
+    pub total_requests: usize,
+    pub successful_requests: usize,
+    pub failed_requests: usize,
+    pub duration: Duration,
+    pub throughput: f64,
+    pub latency_min: Duration,
+    pub latency_max: Duration,
+    pub latency_mean: Duration,
+    pub latency_p50: Duration,
+    pub latency_p90: Duration,
+    pub latency_p95: Duration,
+    pub latency_p99: Duration,
+    pub status_codes: HashMap<u16, usize>,
+}
+
 /// Aggregated metrics from all requests
 pub struct Metrics {
     pub total: usize,
@@ -79,6 +97,56 @@ impl Metrics {
             for (code, count) in codes {
                 println!("  {}: {}", code, count);
             }
+        }
+    }
+
+    /// Convert raw metrics into computed results
+    pub fn into_results(mut self, elapsed: Duration) -> BenchmarkResults {
+        self.latencies.sort();
+        let sorted = &self.latencies;
+
+        let (latency_min, latency_max, latency_mean, latency_p50, latency_p90, latency_p95, latency_p99) =
+            if sorted.is_empty() {
+                (
+                    Duration::ZERO,
+                    Duration::ZERO,
+                    Duration::ZERO,
+                    Duration::ZERO,
+                    Duration::ZERO,
+                    Duration::ZERO,
+                    Duration::ZERO,
+                )
+            } else {
+                let min = *sorted.first().unwrap();
+                let max = *sorted.last().unwrap();
+                let sum: Duration = sorted.iter().sum();
+                let mean = sum / sorted.len() as u32;
+
+                (
+                    min,
+                    max,
+                    mean,
+                    percentile(sorted, 50),
+                    percentile(sorted, 90),
+                    percentile(sorted, 95),
+                    percentile(sorted, 99),
+                )
+            };
+
+        BenchmarkResults {
+            total_requests: self.total,
+            successful_requests: self.success,
+            failed_requests: self.total - self.success,
+            duration: elapsed,
+            throughput: self.total as f64 / elapsed.as_secs_f64(),
+            latency_min,
+            latency_max,
+            latency_mean,
+            latency_p50,
+            latency_p90,
+            latency_p95,
+            latency_p99,
+            status_codes: self.status_codes,
         }
     }
 }
