@@ -2,9 +2,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+use tokio::sync::mpsc;
+
 use crate::client::HttpClient;
 use crate::config::{BenchConfig, StopCondition};
 use crate::error::Result;
+use crate::metrics::{Metrics, RequestResult};
 
 /// Shared state for coordinating workers
 struct ExecutorState {
@@ -76,6 +79,8 @@ impl Executor {
         let state = Arc::new(ExecutorState::new(&self.config.stop_condition));
         let start_time = Instant::now();
 
+        let (tx, mut rx) = mpsc::unbounded_channel::<RequestResult>();
+
         println!("\nStarting benchmark with {} workers...", self.config.concurrency);
 
         if let StopCondition::Duration(duration) = self.config.stop_condition {
@@ -100,12 +105,20 @@ impl Executor {
             let client = Arc::clone(&self.client);
             let config = Arc::clone(&self.config);
             let state = Arc::clone(&state);
+            let tx = tx.clone();
 
             let handle = tokio::spawn(async move {
-                run_worker(worker_id, client, config, state).await
+                run_worker(worker_id, client, config, state, tx).await
             });
 
             handles.push(handle);
+        }
+
+        drop(tx);
+
+        let mut metrics = Metrics::new();
+        while let Some(result) = rx.recv().await {
+            metrics.record(result);
         }
 
         for handle in handles {
@@ -113,15 +126,7 @@ impl Executor {
         }
 
         let elapsed = start_time.elapsed();
-        let total_requests = state.request_count.load(Ordering::Relaxed);
-
-        println!("\n--- Benchmark Complete ---");
-        println!("Total requests: {}", total_requests);
-        println!("Total time: {:.2}s", elapsed.as_secs_f64());
-        println!(
-            "Requests/sec: {:.2}",
-            total_requests as f64 / elapsed.as_secs_f64()
-        );
+        metrics.report(elapsed);
 
         Ok(())
     }
@@ -133,18 +138,16 @@ async fn run_worker(
     client: Arc<HttpClient>,
     config: Arc<BenchConfig>,
     state: Arc<ExecutorState>,
+    tx: mpsc::UnboundedSender<RequestResult>,
 ) {
     while state.increment_and_check() {
-        match client.execute(&config).await {
-            Ok(response) => {
-                let status = response.status();
-                if !status.is_success() {
-                    eprintln!("HTTP {}", status);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-            }
-        }
+        let start = Instant::now();
+        let success = match client.execute(&config).await {
+            Ok(response) => response.status().is_success(),
+            Err(_) => false,
+        };
+        let latency = start.elapsed();
+
+        let _ = tx.send(RequestResult { latency, success });
     }
 }
