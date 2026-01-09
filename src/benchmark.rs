@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::client::HttpClient;
-use crate::config::{BenchConfig, HttpMethod, StopCondition};
+use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestSource, StopCondition};
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::metrics::BenchmarkResults;
@@ -92,13 +92,17 @@ impl BenchmarkBuilder {
     pub fn build(self) -> Result<Benchmark> {
         let url = self.url.ok_or(Error::MissingUrl)?;
 
-        let config = BenchConfig {
+        let request_config = RequestConfig {
             url,
             method: self.method,
-            concurrency: self.concurrency,
-            stop_condition: self.stop_condition,
             headers: self.headers,
             body: self.body,
+        };
+
+        let config = BenchConfig {
+            request_source: RequestSource::Static(request_config),
+            concurrency: self.concurrency,
+            stop_condition: self.stop_condition,
             timeout: self.timeout,
             rate: self.rate,
         };
