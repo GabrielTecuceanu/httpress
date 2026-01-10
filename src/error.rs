@@ -15,6 +15,9 @@ pub enum Error {
     #[error("URL is required")]
     MissingUrl,
 
+    #[error("Invalid configuration: {0}")]
+    InvalidConfig(String),
+
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 

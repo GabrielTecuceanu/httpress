@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::client::HttpClient;
-use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestSource, StopCondition};
+use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestContext, RequestGenerator, RequestSource, StopCondition};
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::metrics::BenchmarkResults;
@@ -17,6 +18,7 @@ pub struct BenchmarkBuilder {
     body: Option<String>,
     timeout: Duration,
     rate: Option<u64>,
+    request_fn: Option<RequestGenerator>,
 }
 
 impl BenchmarkBuilder {
@@ -31,6 +33,7 @@ impl BenchmarkBuilder {
             body: None,
             timeout: Duration::from_secs(30),
             rate: None,
+            request_fn: None,
         }
     }
 
@@ -88,19 +91,42 @@ impl BenchmarkBuilder {
         self
     }
 
+    /// Set a custom request generator function (mutually exclusive with url())
+    pub fn request_fn<F>(mut self, f: F) -> Self
+    where
+        F: Fn(RequestContext) -> RequestConfig + Send + Sync + 'static,
+    {
+        self.request_fn = Some(Arc::new(f));
+        self
+    }
+
     /// Build the benchmark
     pub fn build(self) -> Result<Benchmark> {
-        let url = self.url.ok_or(Error::MissingUrl)?;
-
-        let request_config = RequestConfig {
-            url,
-            method: self.method,
-            headers: self.headers,
-            body: self.body,
+        let request_source = match (self.url, self.request_fn) {
+            (Some(_), Some(_)) => {
+                return Err(Error::InvalidConfig(
+                    "Cannot use both url() and request_fn()".to_string(),
+                ))
+            }
+            (None, None) => {
+                return Err(Error::InvalidConfig(
+                    "Must provide either url() or request_fn()".to_string(),
+                ))
+            }
+            (Some(url), None) => {
+                let request_config = RequestConfig {
+                    url,
+                    method: self.method,
+                    headers: self.headers,
+                    body: self.body,
+                };
+                RequestSource::Static(request_config)
+            }
+            (None, Some(generator)) => RequestSource::Dynamic(generator),
         };
 
         let config = BenchConfig {
-            request_source: RequestSource::Static(request_config),
+            request_source,
             concurrency: self.concurrency,
             stop_condition: self.stop_condition,
             timeout: self.timeout,
