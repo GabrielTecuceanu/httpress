@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use reqwest::{Client, Response};
 
-use crate::config::{BenchConfig, HttpMethod};
+use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestSource};
 use crate::error::Result;
 
 /// HTTP client wrapper for benchmark requests
@@ -23,26 +23,36 @@ impl HttpClient {
 
     /// Execute a single HTTP request based on config
     pub async fn execute(&self, config: &BenchConfig) -> Result<Response> {
-        let mut request = match config.method {
-            HttpMethod::Get => self.client.get(&config.url),
-            HttpMethod::Post => self.client.post(&config.url),
-            HttpMethod::Put => self.client.put(&config.url),
-            HttpMethod::Delete => self.client.delete(&config.url),
-            HttpMethod::Patch => self.client.patch(&config.url),
-            HttpMethod::Head => self.client.head(&config.url),
-            HttpMethod::Options => self.client.request(reqwest::Method::OPTIONS, &config.url),
+        match &config.request_source {
+            RequestSource::Static(req) => self.execute_request(req).await,
+            RequestSource::Dynamic(_) => {
+                unreachable!("execute() should not be called with Dynamic request source")
+            }
+        }
+    }
+
+    /// Execute a single HTTP request from RequestConfig
+    pub async fn execute_request(&self, req: &RequestConfig) -> Result<Response> {
+        let mut request = match req.method {
+            HttpMethod::Get => self.client.get(&req.url),
+            HttpMethod::Post => self.client.post(&req.url),
+            HttpMethod::Put => self.client.put(&req.url),
+            HttpMethod::Delete => self.client.delete(&req.url),
+            HttpMethod::Patch => self.client.patch(&req.url),
+            HttpMethod::Head => self.client.head(&req.url),
+            HttpMethod::Options => self.client.request(reqwest::Method::OPTIONS, &req.url),
         };
 
-        for (key, value) in &config.headers {
+        for (key, value) in &req.headers {
             request = request.header(key, value);
         }
 
-        if let Some(ref body) = config.body {
+        if let Some(ref body) = req.body {
             request = request.body(body.clone());
         }
 
         let response = request.send().await?;
-        
+
         Ok(response)
     }
 }

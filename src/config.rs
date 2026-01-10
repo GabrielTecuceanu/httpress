@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::cli::{Args, Method};
@@ -16,7 +17,7 @@ pub enum StopCondition {
 }
 
 /// HTTP method for requests
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HttpMethod {
     Get,
     Post,
@@ -41,15 +42,40 @@ impl From<Method> for HttpMethod {
     }
 }
 
-/// Benchmark configuration
+/// Configuration for a single HTTP request
 #[derive(Debug, Clone)]
-pub struct BenchConfig {
+pub struct RequestConfig {
     pub url: String,
     pub method: HttpMethod,
-    pub concurrency: usize,
-    pub stop_condition: StopCondition,
     pub headers: HashMap<String, String>,
     pub body: Option<String>,
+}
+
+/// Context passed to request generator functions
+#[derive(Debug, Clone, Copy)]
+pub struct RequestContext {
+    pub worker_id: usize,
+    pub request_number: usize,
+}
+
+/// Type alias for request generator function
+pub type RequestGenerator = Arc<dyn Fn(RequestContext) -> RequestConfig + Send + Sync>;
+
+/// Source of request configuration - either static or dynamically generated
+#[derive(Clone)]
+pub enum RequestSource {
+    /// Static configuration used for all requests
+    Static(RequestConfig),
+    /// Dynamic generator function called for each request
+    Dynamic(RequestGenerator),
+}
+
+/// Benchmark configuration
+#[derive(Clone)]
+pub struct BenchConfig {
+    pub request_source: RequestSource,
+    pub concurrency: usize,
+    pub stop_condition: StopCondition,
     pub timeout: Duration,
     pub rate: Option<u64>,
 }
@@ -66,13 +92,17 @@ impl BenchConfig {
 
         let headers = parse_headers(&args.headers)?;
 
-        Ok(BenchConfig {
+        let request_config = RequestConfig {
             url: args.url,
             method: args.method.into(),
-            concurrency: args.concurrency,
-            stop_condition,
             headers,
             body: args.body,
+        };
+
+        Ok(BenchConfig {
+            request_source: RequestSource::Static(request_config),
+            concurrency: args.concurrency,
+            stop_condition,
             timeout: Duration::from_secs(args.timeout),
             rate: args.rate,
         })

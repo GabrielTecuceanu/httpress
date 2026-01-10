@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio::time::interval;
 
 use crate::client::HttpClient;
-use crate::config::{BenchConfig, StopCondition};
+use crate::config::{BenchConfig, RequestContext, RequestSource, StopCondition};
 use crate::error::Result;
 use crate::metrics::{BenchmarkResults, Metrics, RequestResult};
 
@@ -136,7 +136,7 @@ impl Executor {
 
 /// Worker loop that executes requests
 async fn run_worker(
-    _worker_id: usize,
+    worker_id: usize,
     client: Arc<HttpClient>,
     config: Arc<BenchConfig>,
     state: Arc<ExecutorState>,
@@ -147,18 +147,37 @@ async fn run_worker(
         interval(Duration::from_micros(1_000_000 / r))
     });
 
+    let mut request_number = 0;
+
     while state.increment_and_check() {
         if let Some(ref mut interval) = rate_interval {
             interval.tick().await;
         }
 
         let start = Instant::now();
-        let status = match client.execute(&config).await {
-            Ok(response) => Some(response.status().as_u16()),
-            Err(_) => None,
+        let status = match &config.request_source {
+            RequestSource::Static(_) => {
+                match client.execute(&config).await {
+                    Ok(response) => Some(response.status().as_u16()),
+                    Err(_) => None,
+                }
+            }
+            RequestSource::Dynamic(generator) => {
+                let ctx = RequestContext {
+                    worker_id,
+                    request_number,
+                };
+                let request_config = generator(ctx);
+
+                match client.execute_request(&request_config).await {
+                    Ok(response) => Some(response.status().as_u16()),
+                    Err(_) => None,
+                }
+            }
         };
         let latency = start.elapsed();
 
         let _ = tx.send(RequestResult { latency, status });
+        request_number += 1;
     }
 }

@@ -93,8 +93,10 @@ Add httpress as a dependency in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-httpress = "0.1"
+httpress = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
 
 See [examples/basic_benchmark.rs](examples/basic_benchmark.rs) for a basic example of using the api.
+
+See [examples/custom_requests.rs](examples/custom_requests.rs) for an example of using the request_fn() method to generate custom requests.

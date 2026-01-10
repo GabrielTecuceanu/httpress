@@ -2,7 +2,7 @@ use clap::Parser;
 
 use httpress::cli::Args;
 use httpress::client::HttpClient;
-use httpress::config::BenchConfig;
+use httpress::config::{BenchConfig, RequestSource};
 use httpress::executor::Executor;
 
 #[tokio::main]
@@ -17,10 +17,17 @@ async fn main() {
         }
     };
 
-    println!("Target: {} {:?}", config.url, config.method);
+    match &config.request_source {
+        RequestSource::Static(req) => {
+            println!("Target: {} {:?}", req.url, req.method);
+        }
+        RequestSource::Dynamic(_) => {
+            println!("Target: <dynamic request generator>");
+        }
+    }
     println!("Concurrency: {}", config.concurrency);
     println!("Stop condition: {:?}", config.stop_condition);
-    
+
     if let Some(rate) = &config.rate {
         println!("Rate limit: {} req/s", rate);
     }
