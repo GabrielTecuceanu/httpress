@@ -11,7 +11,7 @@ use crate::metrics::BenchmarkResults;
 /// Builder for configuring and running benchmarks
 pub struct BenchmarkBuilder {
     url: Option<String>,
-    method: HttpMethod,
+    method: Option<HttpMethod>,
     concurrency: usize,
     stop_condition: StopCondition,
     headers: HashMap<String, String>,
@@ -26,7 +26,7 @@ impl BenchmarkBuilder {
     pub fn new() -> Self {
         BenchmarkBuilder {
             url: None,
-            method: HttpMethod::Get,
+            method: None,
             concurrency: 10,
             stop_condition: StopCondition::Infinite,
             headers: HashMap::new(),
@@ -45,7 +45,7 @@ impl BenchmarkBuilder {
 
     /// Set the HTTP method (default: GET)
     pub fn method(mut self, method: HttpMethod) -> Self {
-        self.method = method;
+        self.method = Some(method);
         self
     }
 
@@ -116,13 +116,30 @@ impl BenchmarkBuilder {
             (Some(url), None) => {
                 let request_config = RequestConfig {
                     url,
-                    method: self.method,
+                    method: self.method.unwrap_or(HttpMethod::Get),
                     headers: self.headers,
                     body: self.body,
                 };
                 RequestSource::Static(request_config)
             }
-            (None, Some(generator)) => RequestSource::Dynamic(generator),
+            (None, Some(generator)) => {
+                if self.method.is_some() {
+                    return Err(Error::InvalidConfig(
+                        "Cannot use method() with request_fn()".to_string(),
+                    ));
+                }
+                if !self.headers.is_empty() {
+                    return Err(Error::InvalidConfig(
+                        "Cannot use header() with request_fn()".to_string(),
+                    ));
+                }
+                if self.body.is_some() {
+                    return Err(Error::InvalidConfig(
+                        "Cannot use body() with request_fn()".to_string(),
+                    ));
+                }
+                RequestSource::Dynamic(generator)
+            }
         };
 
         let config = BenchConfig {
