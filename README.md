@@ -93,7 +93,7 @@ Add httpress as a dependency in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-httpress = "0.3"
+httpress = "0.4"
 tokio = { version = "1", features = ["full"] }
 ```
 
