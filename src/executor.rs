@@ -18,6 +18,10 @@ struct ExecutorState {
     request_count: AtomicUsize,
     /// Target request count (if applicable)
     target_requests: Option<usize>,
+    /// Counter for successful requests (2xx status codes)
+    successful_count: AtomicUsize,
+    /// Counter for failed requests (non-2xx or errors)
+    failed_count: AtomicUsize,
 }
 
 impl ExecutorState {
@@ -31,6 +35,8 @@ impl ExecutorState {
             stop: AtomicBool::new(false),
             request_count: AtomicUsize::new(0),
             target_requests,
+            successful_count: AtomicUsize::new(0),
+            failed_count: AtomicUsize::new(0),
         }
     }
 
@@ -57,6 +63,25 @@ impl ExecutorState {
     /// Signal all workers to stop
     fn signal_stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Get current counts for RateContext
+    fn get_counts(&self) -> (usize, usize, usize) {
+        (
+            self.request_count.load(Ordering::Relaxed),
+            self.successful_count.load(Ordering::Relaxed),
+            self.failed_count.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Record successful request (2xx status code)
+    fn record_success(&self) {
+        self.successful_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record failed request (non-2xx or error)
+    fn record_failure(&self) {
+        self.failed_count.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -176,6 +201,16 @@ async fn run_worker(
             }
         };
         let latency = start.elapsed();
+
+        if let Some(s) = status {
+            if (200..300).contains(&s) {
+                state.record_success();
+            } else {
+                state.record_failure();
+            }
+        } else {
+            state.record_failure();
+        }
 
         let _ = tx.send(RequestResult { latency, status });
         request_number += 1;
