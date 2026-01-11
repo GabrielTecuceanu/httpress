@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::client::HttpClient;
-use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestContext, RequestGenerator, RequestSource, StopCondition};
+use crate::config::{BenchConfig, HttpMethod, RateContext, RateFunction, RequestConfig, RequestContext, RequestGenerator, RequestSource, StopCondition};
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::metrics::BenchmarkResults;
@@ -18,6 +18,7 @@ pub struct BenchmarkBuilder {
     body: Option<String>,
     timeout: Duration,
     rate: Option<u64>,
+    rate_fn: Option<RateFunction>,
     request_fn: Option<RequestGenerator>,
 }
 
@@ -33,6 +34,7 @@ impl BenchmarkBuilder {
             body: None,
             timeout: Duration::from_secs(30),
             rate: None,
+            rate_fn: None,
             request_fn: None,
         }
     }
@@ -73,6 +75,15 @@ impl BenchmarkBuilder {
         self
     }
 
+    /// Set a dynamic rate function (mutually exclusive with rate())
+    pub fn rate_fn<F>(mut self, f: F) -> Self
+    where
+        F: Fn(RateContext) -> f64 + Send + Sync + 'static,
+    {
+        self.rate_fn = Some(Arc::new(f));
+        self
+    }
+
     /// Add a header
     pub fn header(mut self, key: &str, value: &str) -> Self {
         self.headers.insert(key.to_string(), value.to_string());
@@ -102,6 +113,12 @@ impl BenchmarkBuilder {
 
     /// Build the benchmark
     pub fn build(self) -> Result<Benchmark> {
+        if self.rate.is_some() && self.rate_fn.is_some() {
+            return Err(Error::InvalidConfig(
+                "Cannot use both rate() and rate_fn()".to_string(),
+            ));
+        }
+
         let request_source = match (self.url, self.request_fn) {
             (Some(_), Some(_)) => {
                 return Err(Error::InvalidConfig(
@@ -148,6 +165,7 @@ impl BenchmarkBuilder {
             stop_condition: self.stop_condition,
             timeout: self.timeout,
             rate: self.rate,
+            rate_fn: self.rate_fn,
         };
 
         Ok(Benchmark { config })

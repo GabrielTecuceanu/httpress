@@ -3,10 +3,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
-use tokio::time::interval;
+use tokio::time::{interval, MissedTickBehavior};
 
 use crate::client::HttpClient;
-use crate::config::{BenchConfig, RequestContext, RequestSource, StopCondition};
+use crate::config::{BenchConfig, RateContext, RequestContext, RequestSource, StopCondition};
 use crate::error::Result;
 use crate::metrics::{BenchmarkResults, Metrics, RequestResult};
 
@@ -18,6 +18,10 @@ struct ExecutorState {
     request_count: AtomicUsize,
     /// Target request count (if applicable)
     target_requests: Option<usize>,
+    /// Counter for successful requests (2xx status codes)
+    successful_count: AtomicUsize,
+    /// Counter for failed requests (non-2xx or errors)
+    failed_count: AtomicUsize,
 }
 
 impl ExecutorState {
@@ -31,6 +35,8 @@ impl ExecutorState {
             stop: AtomicBool::new(false),
             request_count: AtomicUsize::new(0),
             target_requests,
+            successful_count: AtomicUsize::new(0),
+            failed_count: AtomicUsize::new(0),
         }
     }
 
@@ -57,6 +63,25 @@ impl ExecutorState {
     /// Signal all workers to stop
     fn signal_stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Get current counts for RateContext
+    fn get_counts(&self) -> (usize, usize, usize) {
+        (
+            self.request_count.load(Ordering::Relaxed),
+            self.successful_count.load(Ordering::Relaxed),
+            self.failed_count.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Record successful request (2xx status code)
+    fn record_success(&self) {
+        self.successful_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record failed request (non-2xx or error)
+    fn record_failure(&self) {
+        self.failed_count.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -111,7 +136,7 @@ impl Executor {
             let tx = tx.clone();
 
             let handle = tokio::spawn(async move {
-                run_worker(worker_id, client, config, state, tx, rate_per_worker).await
+                run_worker(worker_id, client, config, state, tx, rate_per_worker, start_time).await
             });
 
             handles.push(handle);
@@ -142,10 +167,28 @@ async fn run_worker(
     state: Arc<ExecutorState>,
     tx: mpsc::UnboundedSender<RequestResult>,
     rate_per_worker: Option<u64>,
+    start_time: Instant,
 ) {
-    let mut rate_interval = rate_per_worker.map(|r| {
-        interval(Duration::from_micros(1_000_000 / r))
-    });
+    match &config.rate_fn {
+        None => {
+            run_worker_static(worker_id, client, Arc::clone(&config), state, tx, rate_per_worker).await
+        }
+        Some(rate_fn) => {
+            run_worker_dynamic(worker_id, client, Arc::clone(&config), state, tx, rate_fn.clone(), start_time).await
+        }
+    }
+}
+
+/// Worker with static rate limiting
+async fn run_worker_static(
+    worker_id: usize,
+    client: Arc<HttpClient>,
+    config: Arc<BenchConfig>,
+    state: Arc<ExecutorState>,
+    tx: mpsc::UnboundedSender<RequestResult>,
+    rate_per_worker: Option<u64>,
+) {
+    let mut rate_interval = rate_per_worker.map(|r| interval(Duration::from_micros(1_000_000 / r)));
 
     let mut request_number = 0;
 
@@ -156,17 +199,12 @@ async fn run_worker(
 
         let start = Instant::now();
         let status = match &config.request_source {
-            RequestSource::Static(_) => {
-                match client.execute(&config).await {
-                    Ok(response) => Some(response.status().as_u16()),
-                    Err(_) => None,
-                }
-            }
+            RequestSource::Static(_) => match client.execute(&config).await {
+                Ok(response) => Some(response.status().as_u16()),
+                Err(_) => None,
+            },
             RequestSource::Dynamic(generator) => {
-                let ctx = RequestContext {
-                    worker_id,
-                    request_number,
-                };
+                let ctx = RequestContext { worker_id, request_number };
                 let request_config = generator(ctx);
 
                 match client.execute_request(&request_config).await {
@@ -177,7 +215,121 @@ async fn run_worker(
         };
         let latency = start.elapsed();
 
+        if let Some(s) = status {
+            if (200..300).contains(&s) {
+                state.record_success();
+            } else {
+                state.record_failure();
+            }
+        } else {
+            state.record_failure();
+        }
+
         let _ = tx.send(RequestResult { latency, status });
         request_number += 1;
+    }
+}
+
+/// Worker with dynamic rate control
+async fn run_worker_dynamic(
+    worker_id: usize,
+    client: Arc<HttpClient>,
+    config: Arc<BenchConfig>,
+    state: Arc<ExecutorState>,
+    tx: mpsc::UnboundedSender<RequestResult>,
+    rate_fn: Arc<dyn Fn(RateContext) -> f64 + Send + Sync>,
+    start_time: Instant,
+) {
+    const RATE_UPDATE_INTERVAL_MS: u64 = 100;
+
+    let mut rate_update_interval = interval(Duration::from_millis(RATE_UPDATE_INTERVAL_MS));
+    rate_update_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let (total, success, failed) = state.get_counts();
+    let initial_context = RateContext {
+        elapsed: start_time.elapsed(),
+        total_requests: total,
+        successful_requests: success,
+        failed_requests: failed,
+        current_rate: 0.0,
+    };
+    let mut current_rate = validate_rate(rate_fn(initial_context));
+    let mut rate_interval = create_rate_interval(current_rate, config.concurrency);
+
+    let mut request_number = 0;
+
+    loop {
+        tokio::select! {
+            _ = rate_update_interval.tick() => {
+                let (total, success, failed) = state.get_counts();
+                let ctx = RateContext {
+                    elapsed: start_time.elapsed(),
+                    total_requests: total,
+                    successful_requests: success,
+                    failed_requests: failed,
+                    current_rate,
+                };
+                let new_rate = validate_rate(rate_fn(ctx));
+
+                if (new_rate - current_rate).abs() > 0.01 {
+                    current_rate = new_rate;
+                    rate_interval = create_rate_interval(current_rate, config.concurrency);
+                }
+            }
+            _ = rate_interval.tick() => {
+                if !state.increment_and_check() {
+                    break;
+                }
+
+                let start = Instant::now();
+                let status = match &config.request_source {
+                    RequestSource::Static(_) => match client.execute(&config).await {
+                        Ok(response) => Some(response.status().as_u16()),
+                        Err(_) => None,
+                    },
+                    RequestSource::Dynamic(generator) => {
+                        let ctx = RequestContext { worker_id, request_number };
+                        let request_config = generator(ctx);
+
+                        match client.execute_request(&request_config).await {
+                            Ok(response) => Some(response.status().as_u16()),
+                            Err(_) => None,
+                        }
+                    }
+                };
+                let latency = start.elapsed();
+
+                if let Some(s) = status {
+                    if (200..300).contains(&s) {
+                        state.record_success();
+                    } else {
+                        state.record_failure();
+                    }
+                } else {
+                    state.record_failure();
+                }
+
+                let _ = tx.send(RequestResult { latency, status });
+                request_number += 1;
+            }
+        }
+    }
+}
+
+/// Create rate interval for a given rate per second
+fn create_rate_interval(rate_per_second: f64, worker_count: usize) -> tokio::time::Interval {
+    let rate_per_worker = (rate_per_second / worker_count as f64).max(0.1);
+    let period_micros = (1_000_000.0 / rate_per_worker) as u64;
+    let mut interval = interval(Duration::from_micros(period_micros));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    interval
+}
+
+/// Validate and clamp rate to safe range
+fn validate_rate(rate: f64) -> f64 {
+    if rate.is_nan() || rate.is_infinite() || rate < 0.1 {
+        0.1
+    } else {
+        rate
     }
 }

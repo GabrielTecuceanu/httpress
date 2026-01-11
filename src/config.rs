@@ -58,8 +58,26 @@ pub struct RequestContext {
     pub request_number: usize,
 }
 
+/// Context passed to rate generator functions
+#[derive(Debug, Clone, Copy)]
+pub struct RateContext {
+    /// Time elapsed since benchmark start
+    pub elapsed: Duration,
+    /// Total requests completed (success + failure)
+    pub total_requests: usize,
+    /// Successful requests (2xx status codes)
+    pub successful_requests: usize,
+    /// Failed requests (non-2xx or errors)
+    pub failed_requests: usize,
+    /// Current configured rate (for reference)
+    pub current_rate: f64,
+}
+
 /// Type alias for request generator function
 pub type RequestGenerator = Arc<dyn Fn(RequestContext) -> RequestConfig + Send + Sync>;
+
+/// Type alias for rate generator function
+pub type RateFunction = Arc<dyn Fn(RateContext) -> f64 + Send + Sync>;
 
 /// Source of request configuration - either static or dynamically generated
 #[derive(Clone)]
@@ -78,6 +96,7 @@ pub struct BenchConfig {
     pub stop_condition: StopCondition,
     pub timeout: Duration,
     pub rate: Option<u64>,
+    pub rate_fn: Option<RateFunction>,
 }
 
 impl BenchConfig {
@@ -105,6 +124,7 @@ impl BenchConfig {
             stop_condition,
             timeout: Duration::from_secs(args.timeout),
             rate: args.rate,
+            rate_fn: None,
         })
     }
 }

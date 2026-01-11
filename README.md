@@ -100,3 +100,5 @@ tokio = { version = "1", features = ["full"] }
 See [examples/basic_benchmark.rs](examples/basic_benchmark.rs) for a basic example of using the api.
 
 See [examples/custom_requests.rs](examples/custom_requests.rs) for an example of using the request_fn() method to generate custom requests.
+
+See [examples/rate_ramping.rs](examples/rate_ramping.rs) for an example of using the rate_fn() method to generate custom rates.
