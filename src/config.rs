@@ -79,6 +79,61 @@ pub type RequestGenerator = Arc<dyn Fn(RequestContext) -> RequestConfig + Send +
 /// Type alias for rate generator function
 pub type RateFunction = Arc<dyn Fn(RateContext) -> f64 + Send + Sync>;
 
+/// Context passed to before_request hook functions
+#[derive(Debug, Clone, Copy)]
+pub struct BeforeRequestContext {
+    /// ID of the worker executing this request
+    pub worker_id: usize,
+    /// Sequential number of this request for this worker
+    pub request_number: usize,
+    /// Time elapsed since benchmark start
+    pub elapsed: Duration,
+    /// Total requests completed so far (success + failure)
+    pub total_requests: usize,
+    /// Successful requests so far (2xx status codes)
+    pub successful_requests: usize,
+    /// Failed requests so far (non-2xx or errors)
+    pub failed_requests: usize,
+}
+
+/// Context passed to after_request hook functions
+#[derive(Debug, Clone, Copy)]
+pub struct AfterRequestContext {
+    /// ID of the worker that executed this request
+    pub worker_id: usize,
+    /// Sequential number of this request for this worker
+    pub request_number: usize,
+    /// Time elapsed since benchmark start
+    pub elapsed: Duration,
+    /// Total requests completed so far (success + failure)
+    pub total_requests: usize,
+    /// Successful requests so far (2xx status codes)
+    pub successful_requests: usize,
+    /// Failed requests so far (non-2xx or errors)
+    pub failed_requests: usize,
+    /// Time taken for this request
+    pub latency: Duration,
+    /// HTTP status code (None if request failed)
+    pub status: Option<u16>,
+}
+
+/// Action returned by hook functions to control request execution
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookAction {
+    /// Continue with normal execution
+    Continue,
+    /// Abort this request (counts as failed, but doesn't stop benchmark)
+    Abort,
+    /// Retry this request (up to max_retries limit)
+    Retry,
+}
+
+/// Type alias for before_request hook function
+pub type BeforeRequestHook = Arc<dyn Fn(BeforeRequestContext) -> HookAction + Send + Sync>;
+
+/// Type alias for after_request hook function
+pub type AfterRequestHook = Arc<dyn Fn(AfterRequestContext) -> HookAction + Send + Sync>;
+
 /// Source of request configuration - either static or dynamically generated
 #[derive(Clone)]
 pub enum RequestSource {
@@ -97,6 +152,9 @@ pub struct BenchConfig {
     pub timeout: Duration,
     pub rate: Option<u64>,
     pub rate_fn: Option<RateFunction>,
+    pub before_request_hooks: Vec<BeforeRequestHook>,
+    pub after_request_hooks: Vec<AfterRequestHook>,
+    pub max_retries: usize,
 }
 
 impl BenchConfig {
@@ -125,6 +183,9 @@ impl BenchConfig {
             timeout: Duration::from_secs(args.timeout),
             rate: args.rate,
             rate_fn: None,
+            before_request_hooks: Vec::new(),
+            after_request_hooks: Vec::new(),
+            max_retries: 3,
         })
     }
 }

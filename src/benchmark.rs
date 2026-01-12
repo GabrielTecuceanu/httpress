@@ -3,7 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::client::HttpClient;
-use crate::config::{BenchConfig, HttpMethod, RateContext, RateFunction, RequestConfig, RequestContext, RequestGenerator, RequestSource, StopCondition};
+use crate::config::{
+    AfterRequestHook, BeforeRequestHook, BenchConfig, HttpMethod, RateContext, RateFunction,
+    RequestConfig, RequestContext, RequestGenerator, RequestSource, StopCondition,
+};
 use crate::error::{Error, Result};
 use crate::executor::Executor;
 use crate::metrics::BenchmarkResults;
@@ -20,6 +23,9 @@ pub struct BenchmarkBuilder {
     rate: Option<u64>,
     rate_fn: Option<RateFunction>,
     request_fn: Option<RequestGenerator>,
+    before_request_hooks: Vec<BeforeRequestHook>,
+    after_request_hooks: Vec<AfterRequestHook>,
+    max_retries: usize,
 }
 
 impl BenchmarkBuilder {
@@ -36,6 +42,9 @@ impl BenchmarkBuilder {
             rate: None,
             rate_fn: None,
             request_fn: None,
+            before_request_hooks: Vec::new(),
+            after_request_hooks: Vec::new(),
+            max_retries: 3,
         }
     }
 
@@ -166,6 +175,9 @@ impl BenchmarkBuilder {
             timeout: self.timeout,
             rate: self.rate,
             rate_fn: self.rate_fn,
+            before_request_hooks: self.before_request_hooks,
+            after_request_hooks: self.after_request_hooks,
+            max_retries: self.max_retries,
         };
 
         Ok(Benchmark { config })
