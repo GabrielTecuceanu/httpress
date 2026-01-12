@@ -120,6 +120,30 @@ impl BenchmarkBuilder {
         self
     }
 
+    /// Add a before_request hook (can be called multiple times for chaining)
+    pub fn before_request<F>(mut self, f: F) -> Self
+    where
+        F: Fn(crate::config::BeforeRequestContext) -> crate::config::HookAction + Send + Sync + 'static,
+    {
+        self.before_request_hooks.push(Arc::new(f));
+        self
+    }
+
+    /// Add an after_request hook (can be called multiple times for chaining)
+    pub fn after_request<F>(mut self, f: F) -> Self
+    where
+        F: Fn(crate::config::AfterRequestContext) -> crate::config::HookAction + Send + Sync + 'static,
+    {
+        self.after_request_hooks.push(Arc::new(f));
+        self
+    }
+
+    /// Set maximum number of retries when hooks return Retry (default: 3)
+    pub fn max_retries(mut self, n: usize) -> Self {
+        self.max_retries = n;
+        self
+    }
+
     /// Build the benchmark
     pub fn build(self) -> Result<Benchmark> {
         if self.rate.is_some() && self.rate_fn.is_some() {
