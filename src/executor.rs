@@ -6,7 +6,10 @@ use tokio::sync::mpsc;
 use tokio::time::{interval, MissedTickBehavior};
 
 use crate::client::HttpClient;
-use crate::config::{BenchConfig, RateContext, RequestContext, RequestSource, StopCondition};
+use crate::config::{
+    AfterRequestContext, AfterRequestHook, BeforeRequestContext, BeforeRequestHook, BenchConfig,
+    HookAction, RateContext, RequestContext, RequestSource, StopCondition,
+};
 use crate::error::Result;
 use crate::metrics::{BenchmarkResults, Metrics, RequestResult};
 
@@ -83,6 +86,42 @@ impl ExecutorState {
     fn record_failure(&self) {
         self.failed_count.fetch_add(1, Ordering::Relaxed);
     }
+}
+
+/// Execute before_request hooks with panic safety
+fn execute_before_hooks(hooks: &[BeforeRequestHook], ctx: BeforeRequestContext) -> HookAction {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    for (idx, hook) in hooks.iter().enumerate() {
+        let ctx_clone = ctx;
+        match catch_unwind(AssertUnwindSafe(|| hook(ctx_clone))) {
+            Ok(HookAction::Continue) => continue,
+            Ok(action @ (HookAction::Abort | HookAction::Retry)) => return action,
+            Err(_) => {
+                eprintln!("Warning: before_request hook {} panicked, continuing", idx);
+                continue;
+            }
+        }
+    }
+    HookAction::Continue
+}
+
+/// Execute after_request hooks with panic safety
+fn execute_after_hooks(hooks: &[AfterRequestHook], ctx: AfterRequestContext) -> HookAction {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    for (idx, hook) in hooks.iter().enumerate() {
+        let ctx_clone = ctx;
+        match catch_unwind(AssertUnwindSafe(|| hook(ctx_clone))) {
+            Ok(HookAction::Continue) => continue,
+            Ok(action @ (HookAction::Abort | HookAction::Retry)) => return action,
+            Err(_) => {
+                eprintln!("Warning: after_request hook {} panicked, continuing", idx);
+                continue;
+            }
+        }
+    }
+    HookAction::Continue
 }
 
 /// Async HTTP executor with fixed concurrency
