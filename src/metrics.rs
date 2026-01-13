@@ -1,3 +1,38 @@
+//! Benchmark results and metrics.
+//!
+//! This module contains types for representing benchmark results.
+//! The main type is [`BenchmarkResults`], which contains detailed metrics
+//! from a completed benchmark including latency statistics, throughput,
+//! and status code distribution.
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use httpress::Benchmark;
+//! use std::time::Duration;
+//!
+//! # #[tokio::main]
+//! # async fn main() -> httpress::Result<()> {
+//! let results = Benchmark::builder()
+//!     .url("http://localhost:3000")
+//!     .requests(1000)
+//!     .build()?
+//!     .run()
+//!     .await?;
+//!
+//! // Print formatted results
+//! results.print();
+//!
+//! // Or access individual metrics
+//! println!("Throughput: {:.2} req/s", results.throughput);
+//! println!("p99 latency: {:?}", results.latency_p99);
+//! println!("Success rate: {:.2}%",
+//!     (results.successful_requests as f64 / results.total_requests as f64) * 100.0
+//! );
+//! # Ok(())
+//! # }
+//! ```
+
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -7,26 +42,123 @@ pub struct RequestResult {
     pub status: Option<u16>,
 }
 
-/// Computed benchmark results
+/// Computed benchmark results with detailed metrics.
+///
+/// This struct contains all the metrics collected during a benchmark run, including
+/// request counts, latency statistics, and throughput measurements.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use httpress::{Benchmark, Result};
+/// # use std::time::Duration;
+/// # #[tokio::main]
+/// # async fn main() -> Result<()> {
+/// let results = Benchmark::builder()
+///     .url("http://localhost:3000")
+///     .requests(100)
+///     .build()?
+///     .run()
+///     .await?;
+///
+/// // Print formatted results
+/// results.print();
+///
+/// // Or access individual metrics
+/// println!("Total requests: {}", results.total_requests);
+/// println!("Success rate: {:.2}%",
+///     (results.successful_requests as f64 / results.total_requests as f64) * 100.0
+/// );
+/// println!("p99 latency: {:?}", results.latency_p99);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct BenchmarkResults {
+    /// Total number of requests executed.
     pub total_requests: usize,
+
+    /// Number of successful requests (HTTP status 2xx).
     pub successful_requests: usize,
+
+    /// Number of failed requests (non-2xx status or connection errors).
     pub failed_requests: usize,
+
+    /// Actual duration of the benchmark.
     pub duration: Duration,
+
+    /// Throughput in requests per second (total_requests / duration).
     pub throughput: f64,
+
+    /// Minimum request latency observed.
     pub latency_min: Duration,
+
+    /// Maximum request latency observed.
     pub latency_max: Duration,
+
+    /// Mean (average) request latency.
     pub latency_mean: Duration,
+
+    /// 50th percentile (median) request latency.
     pub latency_p50: Duration,
+
+    /// 90th percentile request latency.
     pub latency_p90: Duration,
+
+    /// 95th percentile request latency.
     pub latency_p95: Duration,
+
+    /// 99th percentile request latency.
     pub latency_p99: Duration,
+
+    /// Distribution of HTTP status codes and their counts.
     pub status_codes: HashMap<u16, usize>,
 }
 
 impl BenchmarkResults {
-    /// Print results to stdout
+    /// Print formatted results to stdout.
+    ///
+    /// Displays a human-readable summary including:
+    /// - Request counts (total, success, errors)
+    /// - Duration and throughput
+    /// - Latency statistics (min, max, mean, percentiles)
+    /// - Status code distribution
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use httpress::{Benchmark, Result};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let results = Benchmark::builder()
+    ///     .url("http://localhost:3000")
+    ///     .requests(100)
+    ///     .build()?
+    ///     .run()
+    ///     .await?;
+    ///
+    /// results.print();
+    /// // Output:
+    /// // --- Benchmark Complete ---
+    /// // Requests:     100 total, 98 success, 2 errors
+    /// // Duration:     2.45s
+    /// // Throughput:   40.82 req/s
+    /// //
+    /// // Latency:
+    /// //   Min:    12.3ms
+    /// //   Max:    156.7ms
+    /// //   Mean:   45.2ms
+    /// //   p50:    42.1ms
+    /// //   p90:    78.3ms
+    /// //   p95:    95.4ms
+    /// //   p99:    145.2ms
+    /// //
+    /// // Status codes:
+    /// //   200: 98
+    /// //   500: 2
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn print(&self) {
         println!("\n--- Benchmark Complete ---");
         println!(

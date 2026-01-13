@@ -15,7 +15,7 @@ impl HttpClient {
     pub fn new(timeout: Duration) -> Result<Self> {
         let client = Client::builder()
             .timeout(timeout)
-            .pool_max_idle_per_host(0) // Disable connection pooling for accurate benchmarks
+            .pool_max_idle_per_host(0)
             .build()?;
 
         Ok(HttpClient { client })
