@@ -7,7 +7,7 @@ use tokio::time::{interval, MissedTickBehavior};
 
 use crate::client::HttpClient;
 use crate::config::{
-    AfterRequestContext, AfterRequestHook, BeforeRequestContext, BeforeRequestHook, BenchConfig,
+    AfterRequestContext, BeforeRequestContext, BenchConfig,
     HookAction, RateContext, RequestContext, RequestSource, StopCondition,
 };
 use crate::error::Result;
@@ -52,13 +52,12 @@ impl ExecutorState {
 
         let slot = self.request_count.fetch_add(1, Ordering::Relaxed);
 
-        if let Some(target) = self.target_requests {
-            if slot >= target {
+        if let Some(target) = self.target_requests
+            && slot >= target {
                 self.stop.store(true, Ordering::Relaxed);
                 self.request_count.fetch_sub(1, Ordering::Relaxed);
                 return false;
             }
-        }
 
         true
     }
@@ -88,8 +87,12 @@ impl ExecutorState {
     }
 }
 
-/// Execute before_request hooks with panic safety
-fn execute_before_hooks(hooks: &[BeforeRequestHook], ctx: BeforeRequestContext) -> HookAction {
+/// Execute hooks with panic safety
+fn execute_hooks<T, F>(hooks: &[Arc<F>], ctx: T, hook_type: &str) -> HookAction
+where
+    T: Copy,
+    F: Fn(T) -> HookAction + Send + Sync + ?Sized,
+{
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     for (idx, hook) in hooks.iter().enumerate() {
@@ -98,25 +101,7 @@ fn execute_before_hooks(hooks: &[BeforeRequestHook], ctx: BeforeRequestContext) 
             Ok(HookAction::Continue) => continue,
             Ok(action @ (HookAction::Abort | HookAction::Retry)) => return action,
             Err(_) => {
-                eprintln!("Warning: before_request hook {} panicked, continuing", idx);
-                continue;
-            }
-        }
-    }
-    HookAction::Continue
-}
-
-/// Execute after_request hooks with panic safety
-fn execute_after_hooks(hooks: &[AfterRequestHook], ctx: AfterRequestContext) -> HookAction {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-
-    for (idx, hook) in hooks.iter().enumerate() {
-        let ctx_clone = ctx;
-        match catch_unwind(AssertUnwindSafe(|| hook(ctx_clone))) {
-            Ok(HookAction::Continue) => continue,
-            Ok(action @ (HookAction::Abort | HookAction::Retry)) => return action,
-            Err(_) => {
-                eprintln!("Warning: after_request hook {} panicked, continuing", idx);
+                eprintln!("Warning: {} hook {} panicked, continuing", hook_type, idx);
                 continue;
             }
         }
@@ -223,7 +208,7 @@ async fn execute_request_with_hooks(
         // Execute before_request hooks
         if !config.before_request_hooks.is_empty() {
             let ctx = build_before_context(worker_id, request_number, state, start_time);
-            match execute_before_hooks(&config.before_request_hooks, ctx) {
+            match execute_hooks(&config.before_request_hooks, ctx, "before_request") {
                 HookAction::Continue => {}
                 HookAction::Abort => {
                     state.record_failure();
@@ -252,7 +237,7 @@ async fn execute_request_with_hooks(
         // Execute after_request hooks
         let hook_action = if !config.after_request_hooks.is_empty() {
             let ctx = build_after_context(worker_id, request_number, state, start_time, latency, status);
-            execute_after_hooks(&config.after_request_hooks, ctx)
+            execute_hooks(&config.after_request_hooks, ctx, "after_request")
         } else {
             HookAction::Continue
         };
