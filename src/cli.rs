@@ -1,4 +1,5 @@
-use clap::{Parser, ValueEnum};
+use crate::config::HttpMethod;
+use clap::Parser;
 
 #[derive(Parser)]
 #[command(name = "httpress")]
@@ -9,7 +10,7 @@ pub struct Args {
 
     /// HTTP method
     #[arg(short, long, value_enum, default_value = "get")]
-    pub method: Method,
+    pub method: HttpMethod,
 
     /// Number of concurrent connections
     #[arg(short, long, default_value_t = 10)]
@@ -38,9 +39,4 @@ pub struct Args {
     /// Target requests per second (rate limit)
     #[arg(short = 'r', long)]
     pub rate: Option<u64>,
-}
-
-#[derive(Clone, Debug, ValueEnum)]
-pub enum Method {
-    Get, Post, Put, Delete, Patch, Head, Options,
 }

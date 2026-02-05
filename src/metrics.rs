@@ -217,52 +217,6 @@ impl Metrics {
         self.latencies.push(result.latency);
     }
 
-    pub fn report(&self, elapsed: Duration) {
-        let errors = self.total - self.success;
-        let throughput = self.total as f64 / elapsed.as_secs_f64();
-
-        println!("\n--- Benchmark Complete ---");
-        println!(
-            "Requests:     {} total, {} success, {} errors",
-            self.total, self.success, errors
-        );
-        println!("Duration:     {:.2}s", elapsed.as_secs_f64());
-        println!("Throughput:   {:.2} req/s", throughput);
-
-        if !self.latencies.is_empty() {
-            let mut sorted = self.latencies.clone();
-            sorted.sort();
-
-            let min = sorted.first().unwrap();
-            let max = sorted.last().unwrap();
-            let sum: Duration = sorted.iter().sum();
-            let mean = sum / sorted.len() as u32;
-
-            let p50 = percentile(&sorted, 50);
-            let p90 = percentile(&sorted, 90);
-            let p95 = percentile(&sorted, 95);
-            let p99 = percentile(&sorted, 99);
-
-            println!("\nLatency:");
-            println!("  Min:    {}", format_duration(*min));
-            println!("  Max:    {}", format_duration(*max));
-            println!("  Mean:   {}", format_duration(mean));
-            println!("  p50:    {}", format_duration(p50));
-            println!("  p90:    {}", format_duration(p90));
-            println!("  p95:    {}", format_duration(p95));
-            println!("  p99:    {}", format_duration(p99));
-        }
-
-        if !self.status_codes.is_empty() {
-            println!("\nStatus codes:");
-            let mut codes: Vec<_> = self.status_codes.iter().collect();
-            codes.sort_by_key(|(k, _)| *k);
-            for (code, count) in codes {
-                println!("  {}: {}", code, count);
-            }
-        }
-    }
-
     /// Convert raw metrics into computed results
     pub fn into_results(mut self, elapsed: Duration) -> BenchmarkResults {
         self.latencies.sort();

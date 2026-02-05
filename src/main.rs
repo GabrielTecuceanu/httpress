@@ -17,14 +17,11 @@ async fn main() {
         }
     };
 
-    match &config.request_source {
-        RequestSource::Static(req) => {
-            println!("Target: {} {:?}", req.url, req.method);
-        }
-        RequestSource::Dynamic(_) => {
-            println!("Target: <dynamic request generator>");
-        }
-    }
+    let RequestSource::Static(req) = &config.request_source else {
+        unreachable!("CLI only creates Static requests")
+    };
+
+    println!("Target: {} {:?}", req.url, req.method);
     println!("Concurrency: {}", config.concurrency);
     println!("Stop condition: {:?}", config.stop_condition);
 

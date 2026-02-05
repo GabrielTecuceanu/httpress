@@ -37,7 +37,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::cli::{Args, Method};
+use crate::cli::Args;
 use crate::error::Error;
 
 /// Defines when the benchmark should stop
@@ -62,7 +62,7 @@ pub enum StopCondition {
 ///
 /// let method = HttpMethod::Post;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum HttpMethod {
     /// HTTP GET method.
     Get,
@@ -78,20 +78,6 @@ pub enum HttpMethod {
     Head,
     /// HTTP OPTIONS method.
     Options,
-}
-
-impl From<Method> for HttpMethod {
-    fn from(m: Method) -> Self {
-        match m {
-            Method::Get => HttpMethod::Get,
-            Method::Post => HttpMethod::Post,
-            Method::Put => HttpMethod::Put,
-            Method::Delete => HttpMethod::Delete,
-            Method::Patch => HttpMethod::Patch,
-            Method::Head => HttpMethod::Head,
-            Method::Options => HttpMethod::Options,
-        }
-    }
 }
 
 /// Configuration for a single HTTP request.
@@ -520,7 +506,7 @@ impl BenchConfig {
 
         let request_config = RequestConfig {
             url: args.url,
-            method: args.method.into(),
+            method: args.method,
             headers,
             body: args.body,
         };
@@ -544,17 +530,23 @@ fn parse_duration(s: &str) -> Result<Duration, Error> {
     let s = s.trim();
 
     if let Some(ms) = s.strip_suffix("ms") {
-        let ms: u64 = ms.parse().map_err(|_| Error::InvalidDuration(s.to_string()))?;
+        let ms: u64 = ms
+            .parse()
+            .map_err(|_| Error::InvalidDuration(s.to_string()))?;
         return Ok(Duration::from_millis(ms));
     }
 
     if let Some(secs) = s.strip_suffix('s') {
-        let secs: u64 = secs.parse().map_err(|_| Error::InvalidDuration(s.to_string()))?;
+        let secs: u64 = secs
+            .parse()
+            .map_err(|_| Error::InvalidDuration(s.to_string()))?;
         return Ok(Duration::from_secs(secs));
     }
 
     if let Some(mins) = s.strip_suffix('m') {
-        let mins: u64 = mins.parse().map_err(|_| Error::InvalidDuration(s.to_string()))?;
+        let mins: u64 = mins
+            .parse()
+            .map_err(|_| Error::InvalidDuration(s.to_string()))?;
         return Ok(Duration::from_secs(mins * 60));
     }
 
