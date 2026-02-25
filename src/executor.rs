@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::{interval, MissedTickBehavior};
 
 use crate::client::HttpClient;
@@ -320,14 +320,61 @@ impl Executor {
             (r as f64 / self.config.concurrency as f64).max(1.0) as u64
         });
 
+        // Spawn a single rate coordinator for dynamic rate, shared across all workers
+        let rate_rx = if let Some(ref rate_fn) = self.config.rate_fn {
+            let (total, success, failed) = state.get_counts();
+            let initial_rate = validate_rate(rate_fn(RateContext {
+                elapsed: Duration::ZERO,
+                total_requests: total,
+                successful_requests: success,
+                failed_requests: failed,
+                current_rate: 0.0,
+            }));
+            let (rate_tx, rate_rx) = watch::channel(initial_rate);
+
+            let rate_fn = rate_fn.clone();
+            let state_for_rate = Arc::clone(&state);
+            tokio::spawn(async move {
+                const RATE_UPDATE_INTERVAL_MS: u64 = 100;
+                let mut update_interval = interval(Duration::from_millis(RATE_UPDATE_INTERVAL_MS));
+                update_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                let mut current_rate = initial_rate;
+
+                loop {
+                    update_interval.tick().await;
+                    if state_for_rate.stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let (total, success, failed) = state_for_rate.get_counts();
+                    let ctx = RateContext {
+                        elapsed: start_time.elapsed(),
+                        total_requests: total,
+                        successful_requests: success,
+                        failed_requests: failed,
+                        current_rate,
+                    };
+                    let new_rate = validate_rate(rate_fn(ctx));
+                    if (new_rate - current_rate).abs() > 0.01 {
+                        current_rate = new_rate;
+                        let _ = rate_tx.send(current_rate);
+                    }
+                }
+            });
+
+            Some(rate_rx)
+        } else {
+            None
+        };
+
         for worker_id in 0..self.config.concurrency {
             let client = Arc::clone(&self.client);
             let config = Arc::clone(&self.config);
             let state = Arc::clone(&state);
             let tx = tx.clone();
+            let rate_rx = rate_rx.clone();
 
             let handle = tokio::spawn(async move {
-                run_worker(worker_id, client, config, state, tx, rate_per_worker, start_time).await
+                run_worker(worker_id, client, config, state, tx, rate_per_worker, rate_rx, start_time).await
             });
 
             handles.push(handle);
@@ -369,14 +416,15 @@ async fn run_worker(
     state: Arc<ExecutorState>,
     tx: mpsc::UnboundedSender<RequestResult>,
     rate_per_worker: Option<u64>,
+    rate_rx: Option<watch::Receiver<f64>>,
     start_time: Instant,
 ) {
-    match &config.rate_fn {
+    match rate_rx {
         None => {
             run_worker_static(worker_id, client, Arc::clone(&config), state, tx, rate_per_worker, start_time).await
         }
-        Some(rate_fn) => {
-            run_worker_dynamic(worker_id, client, Arc::clone(&config), state, tx, rate_fn.clone(), start_time).await
+        Some(rate_rx) => {
+            run_worker_dynamic(worker_id, client, Arc::clone(&config), state, tx, rate_rx, start_time).await
         }
     }
 }
@@ -422,43 +470,30 @@ async fn run_worker_dynamic(
     config: Arc<BenchConfig>,
     state: Arc<ExecutorState>,
     tx: mpsc::UnboundedSender<RequestResult>,
-    rate_fn: Arc<dyn Fn(RateContext) -> f64 + Send + Sync>,
+    mut rate_rx: watch::Receiver<f64>,
     start_time: Instant,
 ) {
-    const RATE_UPDATE_INTERVAL_MS: u64 = 100;
-
-    let mut rate_update_interval = interval(Duration::from_millis(RATE_UPDATE_INTERVAL_MS));
-    rate_update_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-    let (total, success, failed) = state.get_counts();
-    let initial_context = RateContext {
-        elapsed: start_time.elapsed(),
-        total_requests: total,
-        successful_requests: success,
-        failed_requests: failed,
-        current_rate: 0.0,
-    };
-    let mut current_rate = validate_rate(rate_fn(initial_context));
+    let mut current_rate = *rate_rx.borrow();
     let mut rate_interval = create_rate_interval(current_rate, config.concurrency);
+    let mut rate_active = true;
 
     let mut request_number = 0;
 
     loop {
         tokio::select! {
-            _ = rate_update_interval.tick() => {
-                let (total, success, failed) = state.get_counts();
-                let ctx = RateContext {
-                    elapsed: start_time.elapsed(),
-                    total_requests: total,
-                    successful_requests: success,
-                    failed_requests: failed,
-                    current_rate,
-                };
-                let new_rate = validate_rate(rate_fn(ctx));
-
-                if (new_rate - current_rate).abs() > 0.01 {
-                    current_rate = new_rate;
-                    rate_interval = create_rate_interval(current_rate, config.concurrency);
+            result = rate_rx.changed(), if rate_active => {
+                match result {
+                    Ok(()) => {
+                        let new_rate = *rate_rx.borrow_and_update();
+                        if (new_rate - current_rate).abs() > 0.01 {
+                            current_rate = new_rate;
+                            rate_interval = create_rate_interval(current_rate, config.concurrency);
+                        }
+                    }
+                    Err(_) => {
+                        // Coordinator stopped, keep using last known rate
+                        rate_active = false;
+                    }
                 }
             }
             _ = rate_interval.tick() => {
