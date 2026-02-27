@@ -1,14 +1,14 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, watch};
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval};
 
 use crate::client::HttpClient;
 use crate::config::{
-    AfterRequestContext, BeforeRequestContext, BenchConfig,
-    HookAction, RateContext, RequestContext, RequestSource, StopCondition,
+    AfterRequestContext, BeforeRequestContext, BenchConfig, HookAction, HttpMethod, RateContext,
+    RequestContext, RequestSource, StopCondition,
 };
 use crate::error::Result;
 use crate::metrics::{BenchmarkResults, Metrics, RequestResult};
@@ -53,11 +53,12 @@ impl ExecutorState {
         let slot = self.request_count.fetch_add(1, Ordering::Relaxed);
 
         if let Some(target) = self.target_requests
-            && slot >= target {
-                self.stop.store(true, Ordering::Relaxed);
-                self.request_count.fetch_sub(1, Ordering::Relaxed);
-                return false;
-            }
+            && slot >= target
+        {
+            self.stop.store(true, Ordering::Relaxed);
+            self.request_count.fetch_sub(1, Ordering::Relaxed);
+            return false;
+        }
 
         true
     }
@@ -87,23 +88,19 @@ impl ExecutorState {
     }
 }
 
-/// Execute hooks with panic safety
-fn execute_hooks<T, F>(hooks: &[Arc<F>], ctx: T, hook_type: &str) -> HookAction
+/// Maximum number of results to drain from the channel per recv_many call.
+const RECV_BATCH_LIMIT: usize = 256;
+
+/// Execute hooks in order, returning the first non-Continue action.
+fn execute_hooks<T, F>(hooks: &[Arc<F>], ctx: T) -> HookAction
 where
     T: Copy,
     F: Fn(T) -> HookAction + Send + Sync + ?Sized,
 {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-
-    for (idx, hook) in hooks.iter().enumerate() {
-        let ctx_clone = ctx;
-        match catch_unwind(AssertUnwindSafe(|| hook(ctx_clone))) {
-            Ok(HookAction::Continue) => continue,
-            Ok(action @ (HookAction::Abort | HookAction::Retry)) => return action,
-            Err(_) => {
-                eprintln!("Warning: {} hook {} panicked, continuing", hook_type, idx);
-                continue;
-            }
+    for hook in hooks {
+        match hook(ctx) {
+            HookAction::Continue => continue,
+            action => return action,
         }
     }
     HookAction::Continue
@@ -149,6 +146,16 @@ fn build_after_context(
     }
 }
 
+/// Consume the response body to ensure the connection can be reused.
+/// Skips body consumption for HEAD requests since there is no body.
+async fn consume_response(response: reqwest::Response, method: HttpMethod) -> Option<u16> {
+    let status = response.status().as_u16();
+    if method != HttpMethod::Head {
+        let _ = response.bytes().await;
+    }
+    Some(status)
+}
+
 /// Execute the actual HTTP request
 async fn perform_http_request(
     worker_id: usize,
@@ -158,12 +165,8 @@ async fn perform_http_request(
 ) -> (Duration, Option<u16>) {
     let start = Instant::now();
     let status = match &config.request_source {
-        RequestSource::Static(_) => match client.execute(config).await {
-            Ok(response) => {
-                let status = response.status().as_u16();
-                let _ = response.bytes().await;
-                Some(status)
-            }
+        RequestSource::Static(req) => match client.execute(config).await {
+            Ok(response) => consume_response(response, req.method).await,
             Err(_) => None,
         },
         RequestSource::Dynamic(generator) => {
@@ -172,13 +175,10 @@ async fn perform_http_request(
                 request_number,
             };
             let request_config = generator(ctx);
+            let method = request_config.method;
 
             match client.execute_request(&request_config).await {
-                Ok(response) => {
-                    let status = response.status().as_u16();
-                    let _ = response.bytes().await;
-                    Some(status)
-                }
+                Ok(response) => consume_response(response, method).await,
                 Err(_) => None,
             }
         }
@@ -216,7 +216,7 @@ async fn execute_request_with_hooks(
         // Execute before_request hooks
         if !config.before_request_hooks.is_empty() {
             let ctx = build_before_context(worker_id, request_number, state, start_time);
-            match execute_hooks(&config.before_request_hooks, ctx, "before_request") {
+            match execute_hooks(&config.before_request_hooks, ctx) {
                 HookAction::Continue => {}
                 HookAction::Abort => {
                     state.record_failure();
@@ -240,12 +240,20 @@ async fn execute_request_with_hooks(
             }
         }
 
-        let (latency, status) = perform_http_request(worker_id, request_number, client, config).await;
+        let (latency, status) =
+            perform_http_request(worker_id, request_number, client, config).await;
 
         // Execute after_request hooks
         let hook_action = if !config.after_request_hooks.is_empty() {
-            let ctx = build_after_context(worker_id, request_number, state, start_time, latency, status);
-            execute_hooks(&config.after_request_hooks, ctx, "after_request")
+            let ctx = build_after_context(
+                worker_id,
+                request_number,
+                state,
+                start_time,
+                latency,
+                status,
+            );
+            execute_hooks(&config.after_request_hooks, ctx)
         } else {
             HookAction::Continue
         };
@@ -316,9 +324,10 @@ impl Executor {
 
         let mut handles = Vec::with_capacity(self.config.concurrency);
 
-        let rate_per_worker = self.config.rate.map(|r| {
-            (r as f64 / self.config.concurrency as f64).max(1.0) as u64
-        });
+        let rate_per_worker = self
+            .config
+            .rate
+            .map(|r| (r as f64 / self.config.concurrency as f64).max(1.0) as u64);
 
         // Spawn a single rate coordinator for dynamic rate, shared across all workers
         let rate_rx = if let Some(ref rate_fn) = self.config.rate_fn {
@@ -374,7 +383,17 @@ impl Executor {
             let rate_rx = rate_rx.clone();
 
             let handle = tokio::spawn(async move {
-                run_worker(worker_id, client, config, state, tx, rate_per_worker, rate_rx, start_time).await
+                run_worker(
+                    worker_id,
+                    client,
+                    config,
+                    state,
+                    tx,
+                    rate_per_worker,
+                    rate_rx,
+                    start_time,
+                )
+                .await
             });
 
             handles.push(handle);
@@ -394,8 +413,11 @@ impl Executor {
             StopCondition::Infinite => 10_000,
         };
         let mut metrics = Metrics::with_capacity(capacity);
-        while let Some(result) = rx.recv().await {
-            metrics.record(result);
+        let mut buf = Vec::with_capacity(RECV_BATCH_LIMIT);
+        while rx.recv_many(&mut buf, RECV_BATCH_LIMIT).await > 0 {
+            for result in buf.drain(..) {
+                metrics.record(result);
+            }
         }
 
         for handle in handles {
@@ -421,10 +443,16 @@ async fn run_worker(
 ) {
     match rate_rx {
         None => {
-            run_worker_static(worker_id, client, Arc::clone(&config), state, tx, rate_per_worker, start_time).await
+            run_worker_static(
+                worker_id, client, config, state, tx, rate_per_worker, start_time,
+            )
+            .await
         }
         Some(rate_rx) => {
-            run_worker_dynamic(worker_id, client, Arc::clone(&config), state, tx, rate_rx, start_time).await
+            run_worker_dynamic(
+                worker_id, client, config, state, tx, rate_rx, start_time,
+            )
+            .await
         }
     }
 }
