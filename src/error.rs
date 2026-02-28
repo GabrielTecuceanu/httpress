@@ -60,9 +60,9 @@ pub enum Error {
 
     /// HTTP client or request error.
     ///
-    /// This wraps errors from the underlying HTTP client (reqwest).
+    /// This wraps errors from the underlying HTTP client (hyper).
     #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
+    Http(Box<dyn std::error::Error + Send + Sync>),
 
     /// Request timeout occurred.
     ///
