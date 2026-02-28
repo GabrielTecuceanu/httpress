@@ -7,8 +7,7 @@ use tokio::time::{MissedTickBehavior, interval};
 
 use crate::client::HttpClient;
 use crate::config::{
-    AfterRequestContext, BeforeRequestContext, BenchConfig, HookAction, RateContext,
-    RequestContext, RequestSource, StopCondition,
+    AfterRequestContext, BeforeRequestContext, BenchConfig, HookAction, RateContext, StopCondition,
 };
 use crate::error::Result;
 use crate::metrics::{BenchmarkResults, Metrics, RequestResult};
@@ -21,6 +20,119 @@ struct WorkerContext {
     state: Arc<ExecutorState>,
     tx: mpsc::UnboundedSender<RequestResult>,
     start_time: Instant,
+}
+
+impl WorkerContext {
+    /// Execute a single request with hooks and retry logic, then send the result.
+    async fn execute_and_send(&self, request_number: usize) {
+        let result = self.execute_with_hooks(request_number).await;
+        let _ = self.tx.send(result);
+    }
+
+    /// Execute a single request with hooks and retry logic.
+    async fn execute_with_hooks(&self, request_number: usize) -> RequestResult {
+        let max_retries = self.config.max_retries;
+        let mut retry_count = 0;
+
+        loop {
+            // Execute before_request hooks
+            if !self.config.before_request_hooks.is_empty() {
+                let ctx = self.before_context(request_number);
+                match execute_hooks(&self.config.before_request_hooks, ctx) {
+                    HookAction::Continue => {}
+                    HookAction::Abort => {
+                        self.state.record_failure();
+                        return RequestResult {
+                            latency: Duration::ZERO,
+                            status: None,
+                        };
+                    }
+                    HookAction::Retry => {
+                        if retry_count < max_retries {
+                            retry_count += 1;
+                            continue;
+                        } else {
+                            self.state.record_failure();
+                            return RequestResult {
+                                latency: Duration::ZERO,
+                                status: None,
+                            };
+                        }
+                    }
+                }
+            }
+
+            let start = Instant::now();
+            let status = self
+                .client
+                .execute_for_worker(&self.config, self.worker_id, request_number)
+                .await
+                .unwrap_or_default();
+            let latency = start.elapsed();
+
+            // Execute after_request hooks
+            let hook_action = if !self.config.after_request_hooks.is_empty() {
+                let ctx = self.after_context(request_number, latency, status);
+                execute_hooks(&self.config.after_request_hooks, ctx)
+            } else {
+                HookAction::Continue
+            };
+
+            match hook_action {
+                HookAction::Continue => {
+                    self.state.record_status(status);
+                    return RequestResult { latency, status };
+                }
+                HookAction::Abort => {
+                    self.state.record_failure();
+                    return RequestResult {
+                        latency,
+                        status: None,
+                    };
+                }
+                HookAction::Retry => {
+                    if retry_count < max_retries {
+                        retry_count += 1;
+                        continue;
+                    } else {
+                        self.state.record_status(status);
+                        return RequestResult { latency, status };
+                    }
+                }
+            }
+        }
+    }
+
+    fn before_context(&self, request_number: usize) -> BeforeRequestContext {
+        let (total, success, failed) = self.state.get_counts();
+        BeforeRequestContext {
+            worker_id: self.worker_id,
+            request_number,
+            elapsed: self.start_time.elapsed(),
+            total_requests: total,
+            successful_requests: success,
+            failed_requests: failed,
+        }
+    }
+
+    fn after_context(
+        &self,
+        request_number: usize,
+        latency: Duration,
+        status: Option<u16>,
+    ) -> AfterRequestContext {
+        let (total, success, failed) = self.state.get_counts();
+        AfterRequestContext {
+            worker_id: self.worker_id,
+            request_number,
+            elapsed: self.start_time.elapsed(),
+            total_requests: total,
+            successful_requests: success,
+            failed_requests: failed,
+            latency,
+            status,
+        }
+    }
 }
 
 /// Shared state for coordinating workers
@@ -78,7 +190,7 @@ impl ExecutorState {
         self.stop.store(true, Ordering::Relaxed);
     }
 
-    /// Get current counts for RateContext
+    /// Get current counts for hook contexts
     fn get_counts(&self) -> (usize, usize, usize) {
         (
             self.request_count.load(Ordering::Relaxed),
@@ -87,12 +199,19 @@ impl ExecutorState {
         )
     }
 
-    /// Record successful request (2xx status code)
-    fn record_success(&self) {
-        self.successful_count.fetch_add(1, Ordering::Relaxed);
+    /// Record result based on HTTP status code
+    fn record_status(&self, status: Option<u16>) {
+        match status {
+            Some(s) if (200..300).contains(&s) => {
+                self.successful_count.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {
+                self.failed_count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 
-    /// Record failed request (non-2xx or error)
+    /// Record a failed request
     fn record_failure(&self) {
         self.failed_count.fetch_add(1, Ordering::Relaxed);
     }
@@ -114,169 +233,6 @@ where
         }
     }
     HookAction::Continue
-}
-
-/// Build context for before_request hooks
-fn build_before_context(
-    worker_id: usize,
-    request_number: usize,
-    state: &ExecutorState,
-    start_time: Instant,
-) -> BeforeRequestContext {
-    let (total, success, failed) = state.get_counts();
-    BeforeRequestContext {
-        worker_id,
-        request_number,
-        elapsed: start_time.elapsed(),
-        total_requests: total,
-        successful_requests: success,
-        failed_requests: failed,
-    }
-}
-
-/// Build context for after_request hooks
-fn build_after_context(
-    worker_id: usize,
-    request_number: usize,
-    state: &ExecutorState,
-    start_time: Instant,
-    latency: Duration,
-    status: Option<u16>,
-) -> AfterRequestContext {
-    let (total, success, failed) = state.get_counts();
-    AfterRequestContext {
-        worker_id,
-        request_number,
-        elapsed: start_time.elapsed(),
-        total_requests: total,
-        successful_requests: success,
-        failed_requests: failed,
-        latency,
-        status,
-    }
-}
-
-/// Execute the actual HTTP request
-async fn perform_http_request(
-    worker_id: usize,
-    request_number: usize,
-    client: &HttpClient,
-    config: &BenchConfig,
-) -> (Duration, Option<u16>) {
-    let start = Instant::now();
-    let status = match &config.request_source {
-        RequestSource::Static(_) => client.execute(config).await.unwrap_or_default(),
-        RequestSource::Dynamic(generator) => {
-            let ctx = RequestContext {
-                worker_id,
-                request_number,
-            };
-            let request_config = generator(ctx);
-            client
-                .execute_request(&request_config)
-                .await
-                .unwrap_or_default()
-        }
-    };
-    let latency = start.elapsed();
-    (latency, status)
-}
-
-/// Record request result to state based on status code
-fn record_result(state: &ExecutorState, status: Option<u16>) {
-    if let Some(s) = status {
-        if (200..300).contains(&s) {
-            state.record_success();
-        } else {
-            state.record_failure();
-        }
-    } else {
-        state.record_failure();
-    }
-}
-
-/// Execute a single request with hooks and retry logic
-async fn execute_request_with_hooks(
-    worker_id: usize,
-    request_number: usize,
-    client: &HttpClient,
-    config: &BenchConfig,
-    state: &ExecutorState,
-    start_time: Instant,
-) -> RequestResult {
-    let max_retries = config.max_retries;
-    let mut retry_count = 0;
-
-    loop {
-        // Execute before_request hooks
-        if !config.before_request_hooks.is_empty() {
-            let ctx = build_before_context(worker_id, request_number, state, start_time);
-            match execute_hooks(&config.before_request_hooks, ctx) {
-                HookAction::Continue => {}
-                HookAction::Abort => {
-                    state.record_failure();
-                    return RequestResult {
-                        latency: Duration::ZERO,
-                        status: None,
-                    };
-                }
-                HookAction::Retry => {
-                    if retry_count < max_retries {
-                        retry_count += 1;
-                        continue;
-                    } else {
-                        state.record_failure();
-                        return RequestResult {
-                            latency: Duration::ZERO,
-                            status: None,
-                        };
-                    }
-                }
-            }
-        }
-
-        let (latency, status) =
-            perform_http_request(worker_id, request_number, client, config).await;
-
-        // Execute after_request hooks
-        let hook_action = if !config.after_request_hooks.is_empty() {
-            let ctx = build_after_context(
-                worker_id,
-                request_number,
-                state,
-                start_time,
-                latency,
-                status,
-            );
-            execute_hooks(&config.after_request_hooks, ctx)
-        } else {
-            HookAction::Continue
-        };
-
-        match hook_action {
-            HookAction::Continue => {
-                record_result(state, status);
-                return RequestResult { latency, status };
-            }
-            HookAction::Abort => {
-                state.record_failure();
-                return RequestResult {
-                    latency,
-                    status: None,
-                };
-            }
-            HookAction::Retry => {
-                if retry_count < max_retries {
-                    retry_count += 1;
-                    continue;
-                } else {
-                    // Max retries exceeded, record the result anyway
-                    record_result(state, status);
-                    return RequestResult { latency, status };
-                }
-            }
-        }
-    }
 }
 
 /// Async HTTP executor with fixed concurrency
@@ -319,72 +275,25 @@ impl Executor {
 
         let mut handles = Vec::with_capacity(self.config.concurrency);
 
-        let rate_per_worker = self
-            .config
-            .rate
-            .map(|r| (r as f64 / self.config.concurrency as f64).max(1.0) as u64);
+        let rate_per_worker = self.config.rate.map(|r| {
+            let per_worker = r as f64 / self.config.concurrency as f64;
+            Duration::from_secs_f64(1.0 / per_worker.max(0.1))
+        });
 
         // Spawn a single rate coordinator for dynamic rate, shared across all workers
-        let rate_rx = if let Some(ref rate_fn) = self.config.rate_fn {
-            let (total, success, failed) = state.get_counts();
-            let initial_rate = validate_rate(rate_fn(RateContext {
-                elapsed: Duration::ZERO,
-                total_requests: total,
-                successful_requests: success,
-                failed_requests: failed,
-                current_rate: 0.0,
-            }));
-            let (rate_tx, rate_rx) = watch::channel(initial_rate);
-
-            let rate_fn = rate_fn.clone();
-            let state_for_rate = Arc::clone(&state);
-            tokio::spawn(async move {
-                const RATE_UPDATE_INTERVAL_MS: u64 = 100;
-                let mut update_interval = interval(Duration::from_millis(RATE_UPDATE_INTERVAL_MS));
-                update_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-                let mut current_rate = initial_rate;
-
-                loop {
-                    update_interval.tick().await;
-                    if state_for_rate.stop.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    let (total, success, failed) = state_for_rate.get_counts();
-                    let ctx = RateContext {
-                        elapsed: start_time.elapsed(),
-                        total_requests: total,
-                        successful_requests: success,
-                        failed_requests: failed,
-                        current_rate,
-                    };
-                    let new_rate = validate_rate(rate_fn(ctx));
-                    if (new_rate - current_rate).abs() > 0.01 {
-                        current_rate = new_rate;
-                        let _ = rate_tx.send(current_rate);
-                    }
-                }
-            });
-
-            Some(rate_rx)
-        } else {
-            None
-        };
+        let rate_rx = self.spawn_rate_coordinator(&state, start_time);
 
         for worker_id in 0..self.config.concurrency {
-            let client = Arc::clone(&self.client);
-            let config = Arc::clone(&self.config);
-            let state = Arc::clone(&state);
-            let tx = tx.clone();
-            let rate_rx = rate_rx.clone();
-
             let ctx = WorkerContext {
                 worker_id,
-                client,
-                config,
-                state,
-                tx,
+                client: Arc::clone(&self.client),
+                config: Arc::clone(&self.config),
+                state: Arc::clone(&state),
+                tx: tx.clone(),
                 start_time,
             };
+            let rate_rx = rate_rx.clone();
+
             let handle =
                 tokio::spawn(async move { run_worker(ctx, rate_per_worker, rate_rx).await });
 
@@ -420,12 +329,62 @@ impl Executor {
 
         Ok(metrics.into_results(elapsed))
     }
+
+    /// Spawn a rate coordinator task if dynamic rate is configured.
+    fn spawn_rate_coordinator(
+        &self,
+        state: &Arc<ExecutorState>,
+        start_time: Instant,
+    ) -> Option<watch::Receiver<f64>> {
+        let rate_fn = self.config.rate_fn.as_ref()?;
+
+        let (total, success, failed) = state.get_counts();
+        let initial_rate = validate_rate(rate_fn(RateContext {
+            elapsed: Duration::ZERO,
+            total_requests: total,
+            successful_requests: success,
+            failed_requests: failed,
+            current_rate: 0.0,
+        }));
+        let (rate_tx, rate_rx) = watch::channel(initial_rate);
+
+        let rate_fn = rate_fn.clone();
+        let state = Arc::clone(state);
+        tokio::spawn(async move {
+            const RATE_UPDATE_INTERVAL_MS: u64 = 100;
+            let mut update_interval = interval(Duration::from_millis(RATE_UPDATE_INTERVAL_MS));
+            update_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            let mut current_rate = initial_rate;
+
+            loop {
+                update_interval.tick().await;
+                if state.stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let (total, success, failed) = state.get_counts();
+                let ctx = RateContext {
+                    elapsed: start_time.elapsed(),
+                    total_requests: total,
+                    successful_requests: success,
+                    failed_requests: failed,
+                    current_rate,
+                };
+                let new_rate = validate_rate(rate_fn(ctx));
+                if (new_rate - current_rate).abs() > 0.01 {
+                    current_rate = new_rate;
+                    let _ = rate_tx.send(current_rate);
+                }
+            }
+        });
+
+        Some(rate_rx)
+    }
 }
 
-/// Worker loop that executes requests
+/// Worker loop that dispatches to static or dynamic rate mode
 async fn run_worker(
     ctx: WorkerContext,
-    rate_per_worker: Option<u64>,
+    rate_per_worker: Option<Duration>,
     rate_rx: Option<watch::Receiver<f64>>,
 ) {
     match rate_rx {
@@ -435,8 +394,8 @@ async fn run_worker(
 }
 
 /// Worker with static rate limiting
-async fn run_worker_static(ctx: WorkerContext, rate_per_worker: Option<u64>) {
-    let mut rate_interval = rate_per_worker.map(|r| interval(Duration::from_micros(1_000_000 / r)));
+async fn run_worker_static(ctx: WorkerContext, rate_period: Option<Duration>) {
+    let mut rate_interval = rate_period.map(|p| interval(p));
 
     let mut request_number = 0;
 
@@ -445,17 +404,7 @@ async fn run_worker_static(ctx: WorkerContext, rate_per_worker: Option<u64>) {
             interval.tick().await;
         }
 
-        let result = execute_request_with_hooks(
-            ctx.worker_id,
-            request_number,
-            &ctx.client,
-            &ctx.config,
-            &ctx.state,
-            ctx.start_time,
-        )
-        .await;
-
-        let _ = ctx.tx.send(result);
+        ctx.execute_and_send(request_number).await;
         request_number += 1;
     }
 }
@@ -480,7 +429,6 @@ async fn run_worker_dynamic(ctx: WorkerContext, mut rate_rx: watch::Receiver<f64
                         }
                     }
                     Err(_) => {
-                        // Coordinator stopped, keep using last known rate
                         rate_active = false;
                     }
                 }
@@ -490,17 +438,7 @@ async fn run_worker_dynamic(ctx: WorkerContext, mut rate_rx: watch::Receiver<f64
                     break;
                 }
 
-                let result = execute_request_with_hooks(
-                    ctx.worker_id,
-                    request_number,
-                    &ctx.client,
-                    &ctx.config,
-                    &ctx.state,
-                    ctx.start_time,
-                )
-                .await;
-
-                let _ = ctx.tx.send(result);
+                ctx.execute_and_send(request_number).await;
                 request_number += 1;
             }
         }

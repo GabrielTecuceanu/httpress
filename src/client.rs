@@ -7,7 +7,7 @@ use hyper_tls::HttpsConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 
-use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestSource};
+use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestContext, RequestSource};
 use crate::error::Result;
 
 /// HTTP client wrapper for benchmark requests
@@ -34,12 +34,21 @@ impl HttpClient {
         Ok(HttpClient { client, timeout })
     }
 
-    /// Execute a single HTTP request based on config
-    pub async fn execute(&self, config: &BenchConfig) -> Result<Option<u16>> {
+    /// Execute a request, dispatching based on the request source (static or dynamic).
+    pub async fn execute_for_worker(
+        &self,
+        config: &BenchConfig,
+        worker_id: usize,
+        request_number: usize,
+    ) -> Result<Option<u16>> {
         match &config.request_source {
             RequestSource::Static(req) => self.execute_request(req).await,
-            RequestSource::Dynamic(_) => {
-                unreachable!("execute() should not be called with Dynamic request source")
+            RequestSource::Dynamic(generator) => {
+                let ctx = RequestContext {
+                    worker_id,
+                    request_number,
+                };
+                self.execute_request(&generator(ctx)).await
             }
         }
     }
