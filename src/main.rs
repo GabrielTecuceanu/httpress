@@ -1,5 +1,4 @@
 use clap::Parser;
-
 use httpress::cli::Args;
 use httpress::client::HttpClient;
 use httpress::config::{BenchConfig, RequestSource};
@@ -42,10 +41,16 @@ async fn main() {
         config.concurrency
     );
 
+    let (config, pb) = config.with_progress();
+
     let executor = Executor::new(client, config);
     match executor.run().await {
-        Ok(results) => results.print(),
+        Ok(results) => {
+            pb.finish_and_clear();
+            results.print();
+        }
         Err(e) => {
+            pb.finish_and_clear();
             eprintln!("Benchmark failed: {}", e);
             std::process::exit(1);
         }
