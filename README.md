@@ -53,6 +53,7 @@ let results = Benchmark::builder()
     .url("http://localhost:3000")
     .concurrency(50)
     .duration(Duration::from_secs(10))
+    .show_progress(true)
     .build()?
     .run()
     .await?;
@@ -69,6 +70,7 @@ let results = Benchmark::builder()
     .url("http://localhost:3000")
     .concurrency(50)
     .requests(1000)
+    .show_progress(true)
     .build()?
     .run()
     .await?;
