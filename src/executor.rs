@@ -11,6 +11,7 @@ use crate::config::{
 };
 use crate::error::Result;
 use crate::metrics::{BenchmarkResults, Metrics, RequestResult};
+use crate::progress::ProgressSnapshot;
 
 /// Common context shared by all worker tasks
 struct WorkerContext {
@@ -293,6 +294,7 @@ impl Executor {
 
         // Spawn a single rate coordinator for dynamic rate, shared across all workers
         let rate_rx = self.spawn_rate_coordinator(&state, start_time);
+        self.spawn_progress_coordinator(&state, start_time);
 
         for worker_id in 0..self.config.concurrency {
             let ctx = WorkerContext {
@@ -389,6 +391,54 @@ impl Executor {
         });
 
         Some(rate_rx)
+    }
+
+    /// Spawn a progress reporter task if a progress function is configured.
+    fn spawn_progress_coordinator(&self, state: &Arc<ExecutorState>, start_time: Instant) {
+        let Some(progress_fn) = &self.config.progress_fn else {
+            return;
+        };
+
+        let progress_fn = progress_fn.clone();
+        let state = Arc::clone(state);
+        let target_requests = match self.config.stop_condition {
+            StopCondition::Requests(n) => Some(n),
+            _ => None,
+        };
+        let target_duration = match self.config.stop_condition {
+            StopCondition::Duration(d) => Some(d),
+            _ => None,
+        };
+
+        tokio::spawn(async move {
+            const INTERVAL_MS: u64 = 250;
+            let mut tick_interval = interval(Duration::from_millis(INTERVAL_MS));
+            tick_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            let mut prev_count = 0usize;
+
+            loop {
+                tick_interval.tick().await;
+
+                let (total, success, failed) = state.get_counts();
+                let delta = total.saturating_sub(prev_count);
+                prev_count = total;
+                let current_rps = delta as f64 * (1000.0 / INTERVAL_MS as f64);
+
+                progress_fn(ProgressSnapshot {
+                    total_requests: total,
+                    successful_requests: success,
+                    failed_requests: failed,
+                    elapsed: start_time.elapsed(),
+                    current_rps,
+                    target_requests,
+                    target_duration,
+                });
+
+                if state.stop.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+        });
     }
 }
 
