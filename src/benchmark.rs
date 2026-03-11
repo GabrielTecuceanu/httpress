@@ -31,6 +31,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
+use indicatif::ProgressBar;
+
 use crate::client::HttpClient;
 use crate::config::{
     AfterRequestHook, BeforeRequestHook, BenchConfig, HttpMethod, RateContext, RateFunction,
@@ -94,6 +96,7 @@ pub struct BenchmarkBuilder {
     before_request_hooks: Vec<BeforeRequestHook>,
     after_request_hooks: Vec<AfterRequestHook>,
     max_retries: usize,
+    show_progress: bool,
 }
 
 impl BenchmarkBuilder {
@@ -128,6 +131,7 @@ impl BenchmarkBuilder {
             before_request_hooks: Vec::new(),
             after_request_hooks: Vec::new(),
             max_retries: 3,
+            show_progress: false,
         }
     }
 
@@ -525,6 +529,33 @@ impl BenchmarkBuilder {
         self
     }
 
+    /// Enable or disable the built-in terminal progress bar (default: false).
+    ///
+    /// When enabled, a live progress bar is shown during the benchmark displaying
+    /// completion progress and a rolling requests-per-second counter.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use httpress::Benchmark;
+    /// # use std::time::Duration;
+    /// # #[tokio::main]
+    /// # async fn main() -> httpress::Result<()> {
+    /// let results = Benchmark::builder()
+    ///     .url("http://localhost:3000")
+    ///     .duration(Duration::from_secs(30))
+    ///     .show_progress(true)
+    ///     .build()?
+    ///     .run()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn show_progress(mut self, show: bool) -> Self {
+        self.show_progress = show;
+        self
+    }
+
     /// Build the benchmark.
     ///
     /// Validates the configuration and constructs a [`Benchmark`] ready to run.
@@ -611,9 +642,20 @@ impl BenchmarkBuilder {
             before_request_hooks: self.before_request_hooks,
             after_request_hooks: self.after_request_hooks,
             max_retries: self.max_retries,
+            progress_fn: None,
         };
 
-        Ok(Benchmark { config })
+        let (config, progress_bar) = if self.show_progress {
+            let (c, pb) = config.with_progress();
+            (c, Some(pb))
+        } else {
+            (config, None)
+        };
+
+        Ok(Benchmark {
+            config,
+            progress_bar,
+        })
     }
 }
 
@@ -648,6 +690,7 @@ impl Default for BenchmarkBuilder {
 /// ```
 pub struct Benchmark {
     config: BenchConfig,
+    progress_bar: Option<Arc<ProgressBar>>,
 }
 
 impl Benchmark {
@@ -699,6 +742,10 @@ impl Benchmark {
     pub async fn run(self) -> Result<BenchmarkResults> {
         let client = HttpClient::new(self.config.timeout, self.config.concurrency)?;
         let executor = Executor::new(client, self.config);
-        executor.run().await
+        let results = executor.run().await?;
+        if let Some(pb) = self.progress_bar {
+            pb.finish_and_clear();
+        }
+        Ok(results)
     }
 }
