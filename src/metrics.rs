@@ -40,6 +40,7 @@ use std::time::Duration;
 pub struct RequestResult {
     pub latency: Duration,
     pub status: Option<u16>,
+    pub bytes: usize,
 }
 
 /// Computed benchmark results with detailed metrics.
@@ -113,6 +114,9 @@ pub struct BenchmarkResults {
 
     /// Distribution of HTTP status codes and their counts.
     pub status_codes: HashMap<u16, usize>,
+
+    /// Total bytes received across all responses.
+    pub total_bytes: u64,
 }
 
 impl BenchmarkResults {
@@ -167,6 +171,10 @@ impl BenchmarkResults {
         );
         println!("Duration:     {:.2}s", self.duration.as_secs_f64());
         println!("Throughput:   {:.2} req/s", self.throughput);
+        println!(
+            "Transferred:  {:.2} MB",
+            self.total_bytes as f64 / 1_048_576.0
+        );
 
         println!("\nLatency:");
         println!("  Min:    {}", format_duration(self.latency_min));
@@ -194,6 +202,7 @@ pub struct Metrics {
     pub success: usize,
     pub latencies: Vec<Duration>,
     pub status_codes: HashMap<u16, usize>,
+    pub total_bytes: u64,
 }
 
 impl Metrics {
@@ -203,6 +212,7 @@ impl Metrics {
             success: 0,
             latencies: Vec::new(),
             status_codes: HashMap::new(),
+            total_bytes: 0,
         }
     }
 
@@ -212,11 +222,13 @@ impl Metrics {
             success: 0,
             latencies: Vec::with_capacity(capacity),
             status_codes: HashMap::new(),
+            total_bytes: 0,
         }
     }
 
     pub fn record(&mut self, result: RequestResult) {
         self.total += 1;
+        self.total_bytes += result.bytes as u64;
         if let Some(status) = result.status {
             *self.status_codes.entry(status).or_insert(0) += 1;
             if (200..300).contains(&status) {
@@ -280,6 +292,7 @@ impl Metrics {
             latency_p95,
             latency_p99,
             status_codes: self.status_codes,
+            total_bytes: self.total_bytes,
         }
     }
 }

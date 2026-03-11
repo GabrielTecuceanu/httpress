@@ -35,12 +35,13 @@ impl HttpClient {
     }
 
     /// Execute a request, dispatching based on the request source (static or dynamic).
+    /// Returns (status_code, bytes_received).
     pub async fn execute_for_worker(
         &self,
         config: &BenchConfig,
         worker_id: usize,
         request_number: usize,
-    ) -> Result<Option<u16>> {
+    ) -> Result<(Option<u16>, usize)> {
         match &config.request_source {
             RequestSource::Static(req) => self.execute_request(req).await,
             RequestSource::Dynamic(generator) => {
@@ -53,8 +54,9 @@ impl HttpClient {
         }
     }
 
-    /// Execute a single HTTP request from RequestConfig
-    pub async fn execute_request(&self, req: &RequestConfig) -> Result<Option<u16>> {
+    /// Execute a single HTTP request from RequestConfig.
+    /// Returns (status_code, bytes_received).
+    pub async fn execute_request(&self, req: &RequestConfig) -> Result<(Option<u16>, usize)> {
         let method = match req.method {
             HttpMethod::Get => hyper::Method::GET,
             HttpMethod::Post => hyper::Method::POST,
@@ -92,10 +94,17 @@ impl HttpClient {
         let status = response.status().as_u16();
 
         // Consume body to allow connection reuse (HEAD has no body)
-        if req.method != HttpMethod::Head {
-            let _ = response.into_body().collect().await;
-        }
+        let bytes = if req.method != HttpMethod::Head {
+            response
+                .into_body()
+                .collect()
+                .await
+                .map(|b| b.to_bytes().len())
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
-        Ok(Some(status))
+        Ok((Some(status), bytes))
     }
 }

@@ -45,6 +45,7 @@ impl WorkerContext {
                         return RequestResult {
                             latency: Duration::ZERO,
                             status: None,
+                            bytes: 0,
                         };
                     }
                     HookAction::Retry => {
@@ -56,6 +57,7 @@ impl WorkerContext {
                             return RequestResult {
                                 latency: Duration::ZERO,
                                 status: None,
+                                bytes: 0,
                             };
                         }
                     }
@@ -63,7 +65,7 @@ impl WorkerContext {
             }
 
             let start = Instant::now();
-            let status = self
+            let (status, bytes) = self
                 .client
                 .execute_for_worker(&self.config, self.worker_id, request_number)
                 .await
@@ -81,13 +83,18 @@ impl WorkerContext {
             match hook_action {
                 HookAction::Continue => {
                     self.state.record_status(status);
-                    return RequestResult { latency, status };
+                    return RequestResult {
+                        latency,
+                        status,
+                        bytes,
+                    };
                 }
                 HookAction::Abort => {
                     self.state.record_failure();
                     return RequestResult {
                         latency,
                         status: None,
+                        bytes: 0,
                     };
                 }
                 HookAction::Retry => {
@@ -96,7 +103,11 @@ impl WorkerContext {
                         continue;
                     } else {
                         self.state.record_status(status);
-                        return RequestResult { latency, status };
+                        return RequestResult {
+                            latency,
+                            status,
+                            bytes,
+                        };
                     }
                 }
             }
