@@ -165,6 +165,7 @@ httpress http://example.com -c 50
 | `-H, --header`      | HTTP header (repeatable)     | -       |
 | `-b, --body`        | Request body                 | -       |
 | `-t, --timeout`     | Request timeout in seconds   | 30      |
+| `-k, --insecure`    | Skip TLS verification        | false   |
 
 ## Library Usage
 

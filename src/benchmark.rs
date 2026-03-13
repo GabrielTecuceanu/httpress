@@ -97,6 +97,7 @@ pub struct BenchmarkBuilder {
     after_request_hooks: Vec<AfterRequestHook>,
     max_retries: usize,
     show_progress: bool,
+    insecure: bool,
 }
 
 impl BenchmarkBuilder {
@@ -132,6 +133,7 @@ impl BenchmarkBuilder {
             after_request_hooks: Vec::new(),
             max_retries: 3,
             show_progress: false,
+            insecure: false,
         }
     }
 
@@ -556,6 +558,12 @@ impl BenchmarkBuilder {
         self
     }
 
+    /// Skip TLS certificate verification.
+    pub fn insecure(mut self, insecure: bool) -> Self {
+        self.insecure = insecure;
+        self
+    }
+
     /// Build the benchmark.
     ///
     /// Validates the configuration and constructs a [`Benchmark`] ready to run.
@@ -643,6 +651,7 @@ impl BenchmarkBuilder {
             after_request_hooks: self.after_request_hooks,
             max_retries: self.max_retries,
             progress_fn: None,
+            insecure: self.insecure,
         };
 
         let (config, progress_bar) = if self.show_progress {
@@ -740,7 +749,7 @@ impl Benchmark {
     /// # }
     /// ```
     pub async fn run(self) -> Result<BenchmarkResults> {
-        let client = HttpClient::new(self.config.timeout, self.config.concurrency)?;
+        let client = HttpClient::new(self.config.timeout, self.config.concurrency, self.config.insecure)?;
         let executor = Executor::new(client, self.config);
         let results = executor.run().await?;
         if let Some(pb) = self.progress_bar {

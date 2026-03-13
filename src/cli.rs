@@ -39,4 +39,8 @@ pub struct Args {
     /// Target requests per second (rate limit)
     #[arg(short = 'r', long)]
     pub rate: Option<u64>,
+
+    /// Skip TLS certificate verification
+    #[arg(short = 'k', long)]
+    pub insecure: bool,
 }

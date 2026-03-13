@@ -18,13 +18,21 @@ pub struct HttpClient {
 
 impl HttpClient {
     /// Create a new HTTP client with the given timeout and connection pool settings
-    pub fn new(timeout: Duration, concurrency: usize) -> Result<Self> {
+    pub fn new(timeout: Duration, concurrency: usize, insecure: bool) -> Result<Self> {
         let mut connector = hyper_util::client::legacy::connect::HttpConnector::new();
         connector.enforce_http(false);
         connector.set_nodelay(true);
         connector.set_keepalive(Some(Duration::from_secs(60)));
 
-        let https = HttpsConnector::new_with_connector(connector);
+        let https = if insecure {
+            let mut tls_builder = native_tls::TlsConnector::builder();
+            tls_builder.danger_accept_invalid_certs(true);
+            tls_builder.danger_accept_invalid_hostnames(true);
+            let tls = tls_builder.build().map_err(|e| crate::error::Error::Http(e.into()))?;
+            HttpsConnector::from((connector, tls.into()))
+        } else {
+            HttpsConnector::new_with_connector(connector)
+        };
 
         let client = Client::builder(TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(90))

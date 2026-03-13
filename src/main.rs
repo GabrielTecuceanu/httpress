@@ -28,7 +28,7 @@ async fn main() {
         println!("Rate limit: {} req/s", rate);
     }
 
-    let client = match HttpClient::new(config.timeout, config.concurrency) {
+    let client = match HttpClient::new(config.timeout, config.concurrency, config.insecure) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Failed to create HTTP client: {}", e);

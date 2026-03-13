@@ -497,6 +497,7 @@ pub struct BenchConfig {
     pub after_request_hooks: Vec<AfterRequestHook>,
     pub max_retries: usize,
     pub progress_fn: Option<ProgressFn>,
+    pub insecure: bool,
 }
 
 impl BenchConfig {
@@ -529,6 +530,7 @@ impl BenchConfig {
             after_request_hooks: Vec::new(),
             max_retries: 3,
             progress_fn: None,
+            insecure: args.insecure,
         })
     }
 
