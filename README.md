@@ -62,7 +62,7 @@ a fast HTTP benchmarking library and CLI tool
 | Tool     | Throughput   | p50     | p99     |
 | -------- | ------------ | ------- | ------- |
 | httpress | 32,502 req/s | 2.42 ms | 6.03 ms |
-| wrk¹     | 39,135 req/s | 2.47 ms | 5.42 ms |
+| wrk      | 39,135 req/s | 2.47 ms | 5.42 ms |
 | hey      | 27,182 req/s | 3.50 ms | 9.40 ms |
 
 ### Sample output
