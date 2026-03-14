@@ -379,6 +379,7 @@ dependencies = [
  "hyper-tls",
  "hyper-util",
  "indicatif",
+ "native-tls",
  "serde",
  "serde_json",
  "thiserror",

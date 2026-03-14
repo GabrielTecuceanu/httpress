@@ -28,7 +28,9 @@ impl HttpClient {
             let mut tls_builder = native_tls::TlsConnector::builder();
             tls_builder.danger_accept_invalid_certs(true);
             tls_builder.danger_accept_invalid_hostnames(true);
-            let tls = tls_builder.build().map_err(|e| crate::error::Error::Http(e.into()))?;
+            let tls = tls_builder
+                .build()
+                .map_err(|e| crate::error::Error::Http(e.into()))?;
             HttpsConnector::from((connector, tls.into()))
         } else {
             HttpsConnector::new_with_connector(connector)

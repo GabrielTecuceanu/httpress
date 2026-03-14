@@ -749,7 +749,11 @@ impl Benchmark {
     /// # }
     /// ```
     pub async fn run(self) -> Result<BenchmarkResults> {
-        let client = HttpClient::new(self.config.timeout, self.config.concurrency, self.config.insecure)?;
+        let client = HttpClient::new(
+            self.config.timeout,
+            self.config.concurrency,
+            self.config.insecure,
+        )?;
         let executor = Executor::new(client, self.config);
         let results = executor.run().await?;
         if let Some(pb) = self.progress_bar {
