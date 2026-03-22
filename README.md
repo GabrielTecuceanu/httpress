@@ -5,8 +5,8 @@
 [![Crates.io](https://img.shields.io/crates/v/httpress.svg)](https://crates.io/crates/httpress)
 [![Downloads](https://img.shields.io/crates/d/httpress.svg)](https://crates.io/crates/httpress)
 [![Documentation](https://docs.rs/httpress/badge.svg)](https://docs.rs/httpress)
-[![CI](https://github.com/TecuceanuGabriel/httpress/actions/workflows/ci.yml/badge.svg)](https://github.com/TecuceanuGabriel/httpress/actions/workflows/ci.yml)
-[![License](https://img.shields.io/crates/l/httpress.svg)](https://github.com/TecuceanuGabriel/httpress)
+[![CI](https://github.com/GabrielTecuceanu/httpress/actions/workflows/ci.yml/badge.svg)](https://github.com/GabrielTecuceanu/httpress/actions/workflows/ci.yml)
+[![License](https://img.shields.io/crates/l/httpress.svg)](https://github.com/GabrielTecuceanu/httpress)
 
 a fast HTTP benchmarking library and CLI tool
 
@@ -21,13 +21,13 @@ a fast HTTP benchmarking library and CLI tool
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Library Usage](#library-usage)
-    - [Basic Benchmark](#basic-benchmark)
-    - [Custom Request Generation](#custom-request-generation)
-    - [Dynamic Rate Control](#dynamic-rate-control)
-    - [Hook System](#hook-system)
+  - [Basic Benchmark](#basic-benchmark)
+  - [Custom Request Generation](#custom-request-generation)
+  - [Dynamic Rate Control](#dynamic-rate-control)
+  - [Hook System](#hook-system)
 - [CLI Usage](#cli-usage)
-    - [Basic Examples](#basic-examples)
-    - [Options](#options)
+  - [Basic Examples](#basic-examples)
+  - [Options](#options)
 - [Examples](#examples)
 
 ## Features
@@ -254,3 +254,9 @@ Run examples with:
 ```bash
 cargo run --example basic_benchmark
 ```
+
+## Real-World Example
+
+[httpress-example](https://github.com/GabrielTecuceanu/httpress-example) - an
+axum key-value store server that uses httpress in its test suite for regression
+testing, with a fully configured CI pipeline.
