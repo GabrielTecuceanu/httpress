@@ -244,10 +244,11 @@ For complete API documentation, see [docs.rs/httpress](https://docs.rs/httpress)
 
 The `examples/` directory contains:
 
-- **basic_benchmark.rs** - basic benchmark example
-- **custom_requests.rs** - dynamic request generation using `request_fn`
-- **rate_ramping.rs** - advanced rate control using `rate_fn`
-- **hooks_metrics.rs** - custom metrics collection using hooks
+- [basic_benchmark.rs](examples/basic_benchmark.rs) - basic benchmark example
+- [custom_requests.rs](examples/custom_requests.rs) - dynamic request generation using `request_fn`
+- [rate_ramping.rs](examples/rate_ramping.rs) - advanced rate control using `rate_fn`
+- [hooks_metrics.rs](examples/hooks_metrics.rs) - custom metrics collection using hooks
+- [test_server.rs](examples/test_server.rs) - local axum test server used by the other examples
 
 Run examples with:
 
