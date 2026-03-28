@@ -29,6 +29,7 @@ a fast HTTP benchmarking library and CLI tool
   - [Basic Examples](#basic-examples)
   - [Options](#options)
 - [Examples](#examples)
+- [Roadmap](#roadmap)
 
 ## Features
 
@@ -261,3 +262,14 @@ cargo run --example basic_benchmark
 [httpress-example](https://github.com/GabrielTecuceanu/httpress-example) - an
 axum key-value store server that uses httpress in its test suite for regression
 testing, with a fully configured CI pipeline.
+
+## Roadmap
+
+- [ ] Coordinated omission correction
+- [ ] HDR histogram
+- [ ] HTTP/2 support
+- [ ] Latency breakdown (DNS, TCP connect, TLS, TTFB)
+- [ ] Warm-up period
+- [ ] Structured output (JSON/CSV)
+- [ ] Multi-step scenarios
+- [ ] HTTP/3 support
