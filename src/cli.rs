@@ -1,4 +1,4 @@
-use crate::config::HttpMethod;
+use crate::config::{HttpMethod, OutputFormat};
 use clap::Parser;
 
 #[derive(Parser)]
@@ -43,4 +43,8 @@ pub struct Args {
     /// Skip TLS certificate verification
     #[arg(short = 'k', long)]
     pub insecure: bool,
+
+    /// Output serialized into provided format
+    #[arg(short = 'o', long, value_enum)]
+    pub output: Option<OutputFormat>,
 }

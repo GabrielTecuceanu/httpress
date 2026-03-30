@@ -484,6 +484,13 @@ pub enum RequestSource {
     Dynamic(RequestGenerator),
 }
 
+/// Outputformat for benchmark results to be serialized into when --output/-o
+/// flag is passed.
+#[derive(Clone, clap::ValueEnum)]
+pub enum OutputFormat {
+    JSON,
+}
+
 /// Benchmark configuration
 #[derive(Clone)]
 pub struct BenchConfig {
@@ -498,6 +505,7 @@ pub struct BenchConfig {
     pub max_retries: usize,
     pub progress_fn: Option<ProgressFn>,
     pub insecure: bool,
+    pub output: Option<OutputFormat>
 }
 
 impl BenchConfig {
@@ -531,6 +539,7 @@ impl BenchConfig {
             max_retries: 3,
             progress_fn: None,
             insecure: args.insecure,
+            output: args.output
         })
     }
 
@@ -591,3 +600,4 @@ fn parse_headers(headers: &[String]) -> Result<HashMap<String, String>, Error> {
 
     Ok(map)
 }
+

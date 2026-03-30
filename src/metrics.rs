@@ -36,6 +36,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use serde::Serialize;
+
 /// Result of a single HTTP request
 pub struct RequestResult {
     pub latency: Duration,
@@ -74,7 +76,7 @@ pub struct RequestResult {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BenchmarkResults {
     /// Total number of requests executed.
     pub total_requests: usize,

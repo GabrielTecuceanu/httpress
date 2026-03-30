@@ -1,7 +1,7 @@
 use clap::Parser;
 use httpress::cli::Args;
 use httpress::client::HttpClient;
-use httpress::config::{BenchConfig, RequestSource};
+use httpress::config::{BenchConfig, OutputFormat, RequestSource};
 use httpress::executor::Executor;
 
 #[tokio::main]
@@ -43,11 +43,22 @@ async fn main() {
 
     let (config, pb) = config.with_progress();
 
-    let executor = Executor::new(client, config);
+    let executor = Executor::new(client, config.clone());
     match executor.run().await {
         Ok(results) => {
             pb.finish_and_clear();
-            results.print();
+            if let Some(output_format) = config.output {
+                match output_format {
+                    OutputFormat::JSON => {
+                       match serde_json::to_string_pretty(&results) {
+                           Ok(res) => println!("{}", res),
+                           Err(e) => eprintln!("{}",e),
+                        }
+                    },
+                }
+             } else {
+                 results.print();
+            }
         }
         Err(e) => {
             pb.finish_and_clear();
