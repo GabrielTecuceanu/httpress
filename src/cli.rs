@@ -45,6 +45,6 @@ pub struct Args {
     pub insecure: bool,
 
     /// Output serialized into provided format
-    #[arg(short = 'o', long, value_enum)]
-    pub output: Option<OutputFormat>,
+    #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Text)]
+    pub output: OutputFormat,
 }

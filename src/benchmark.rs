@@ -35,7 +35,8 @@ use indicatif::ProgressBar;
 
 use crate::client::HttpClient;
 use crate::config::{
-    AfterRequestHook, BeforeRequestHook, BenchConfig, HttpMethod, OutputFormat, RateContext, RateFunction, RequestConfig, RequestContext, RequestGenerator, RequestSource, StopCondition
+    AfterRequestHook, BeforeRequestHook, BenchConfig, HttpMethod, RateContext, RateFunction,
+    RequestConfig, RequestContext, RequestGenerator, RequestSource, StopCondition,
 };
 use crate::error::{Error, Result};
 use crate::executor::Executor;
@@ -97,7 +98,6 @@ pub struct BenchmarkBuilder {
     max_retries: usize,
     show_progress: bool,
     insecure: bool,
-    output: Option<OutputFormat>,
 }
 
 impl BenchmarkBuilder {
@@ -134,7 +134,6 @@ impl BenchmarkBuilder {
             max_retries: 3,
             show_progress: false,
             insecure: false,
-            output: None,
         }
     }
 
@@ -565,13 +564,6 @@ impl BenchmarkBuilder {
         self
     }
 
-    /// Format of serialized output
-    pub fn output(mut self, output: OutputFormat) -> Self {
-        self.output = Some(output);
-        self
-    }
-
-
     /// Build the benchmark.
     ///
     /// Validates the configuration and constructs a [`Benchmark`] ready to run.
@@ -660,7 +652,6 @@ impl BenchmarkBuilder {
             max_retries: self.max_retries,
             progress_fn: None,
             insecure: self.insecure,
-            output: self.output,
         };
 
         let (config, progress_bar) = if self.show_progress {

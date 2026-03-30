@@ -7,6 +7,7 @@ use httpress::executor::Executor;
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    let output_format = args.output;
 
     let config = match BenchConfig::from_args(args) {
         Ok(c) => c,
@@ -20,12 +21,13 @@ async fn main() {
         unreachable!("CLI only creates Static requests")
     };
 
-    println!("Target: {} {:?}", req.url, req.method);
-    println!("Concurrency: {}", config.concurrency);
-    println!("Stop condition: {:?}", config.stop_condition);
+    // Print banner to stderr so stdout stays clean for piped output (e.g. --output json | jq)
+    eprintln!("Target: {} {:?}", req.url, req.method);
+    eprintln!("Concurrency: {}", config.concurrency);
+    eprintln!("Stop condition: {:?}", config.stop_condition);
 
     if let Some(rate) = &config.rate {
-        println!("Rate limit: {} req/s", rate);
+        eprintln!("Rate limit: {} req/s", rate);
     }
 
     let client = match HttpClient::new(config.timeout, config.concurrency, config.insecure) {
@@ -36,28 +38,26 @@ async fn main() {
         }
     };
 
-    println!(
+    eprintln!(
         "\nStarting benchmark with {} workers...",
         config.concurrency
     );
 
     let (config, pb) = config.with_progress();
 
-    let executor = Executor::new(client, config.clone());
+    let executor = Executor::new(client, config);
     match executor.run().await {
         Ok(results) => {
             pb.finish_and_clear();
-            if let Some(output_format) = config.output {
-                match output_format {
-                    OutputFormat::JSON => {
-                       match serde_json::to_string_pretty(&results) {
-                           Ok(res) => println!("{}", res),
-                           Err(e) => eprintln!("{}",e),
-                        }
-                    },
-                }
-             } else {
-                 results.print();
+            match output_format {
+                OutputFormat::Text => results.print(),
+                OutputFormat::Json => match serde_json::to_string_pretty(&results) {
+                    Ok(json) => println!("{}", json),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        std::process::exit(1);
+                    }
+                },
             }
         }
         Err(e) => {
