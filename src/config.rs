@@ -503,9 +503,7 @@ pub struct BenchConfig {
 impl BenchConfig {
     /// Create config from CLI arguments
     pub fn from_args(args: Cli) -> Result<Self, Error> {
-        let url = args
-            .url
-            .ok_or_else(|| Error::MissingUrl)?;
+        let url = args.url.ok_or_else(|| Error::MissingUrl)?;
 
         let stop_condition = match (args.requests, args.duration) {
             (Some(n), None) => StopCondition::Requests(n),
