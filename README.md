@@ -28,7 +28,6 @@ a fast HTTP benchmarking library and CLI tool
 - [CLI Usage](#cli-usage)
   - [Basic Examples](#basic-examples)
   - [Options](#options)
-  - [Shell Completions](#shell-completions)
 - [Examples](#examples)
 - [Roadmap](#roadmap)
 
@@ -103,6 +102,29 @@ Status codes:
 cargo install httpress
 ```
 
+#### Shell Completions
+
+`httpress` can generate shell completion scripts for your shell of choice.
+Once loaded, pressing `Tab` will autocomplete subcommands, flags, and option values.
+
+```bash
+# Bash
+httpress completions bash > ~/.local/share/bash-completion/completions/httpress
+
+# Zsh
+httpress completions zsh > ~/.zfunc/_httpress
+# Then add `fpath=(~/.zfunc $fpath)` and `autoload -U compinit && compinit` to ~/.zshrc
+
+# Fish
+httpress completions fish > ~/.config/fish/completions/httpress.fish
+
+# PowerShell
+httpress completions powershell >> $PROFILE
+
+# Elvish
+httpress completions elvish >> ~/.config/elvish/rc.elv
+```
+
 ### As a Library
 
 Add to your `Cargo.toml`:
@@ -169,28 +191,6 @@ httpress http://example.com -c 50
 | `-t, --timeout`     | Request timeout in seconds   | 30      |
 | `-k, --insecure`    | Skip TLS verification        | false   |
 
-### Shell Completions
-
-`httpress` can generate shell completion scripts for your shell of choice.
-Once loaded, pressing `Tab` will autocomplete subcommands, flags, and option values.
-
-```bash
-# Bash
-httpress completions bash > ~/.local/share/bash-completion/completions/httpress
-
-# Zsh
-httpress completions zsh > ~/.zfunc/_httpress
-# Then add `fpath=(~/.zfunc $fpath)` and `autoload -U compinit && compinit` to ~/.zshrc
-
-# Fish
-httpress completions fish > ~/.config/fish/completions/httpress.fish
-
-# PowerShell
-httpress completions powershell >> $PROFILE
-
-# Elvish
-httpress completions elvish >> ~/.config/elvish/rc.elv
-```
 
 ## Library Usage
 
