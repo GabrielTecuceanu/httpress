@@ -11,7 +11,6 @@ pub struct Cli {
     pub command: Option<Commands>,
 
     /// Target URL to bench
-    #[arg(required_unless_present = "command")]
     pub url: Option<String>,
 
     /// HTTP method
