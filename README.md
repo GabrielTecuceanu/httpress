@@ -108,21 +108,20 @@ cargo install httpress
 Once loaded, pressing `Tab` will autocomplete subcommands, flags, and option values.
 
 ```bash
-# Bash
-httpress completions bash > ~/.local/share/bash-completion/completions/httpress
+# Bash: Add to your .bashrc
+source <(httpress completions bash)
 
-# Zsh
-httpress completions zsh > ~/.zfunc/_httpress
-# Then add `fpath=(~/.zfunc $fpath)` and `autoload -U compinit && compinit` to ~/.zshrc
+# Zsh: Add to your .zshrc
+source <(httpress completions zsh)
 
-# Fish
-httpress completions fish > ~/.config/fish/completions/httpress.fish
+# Fish: Add to your ~/.config/fish/config.fish
+httpress completions fish | source
 
-# PowerShell
-httpress completions powershell >> $PROFILE
+# PowerShell: Add to your profile ($PROFILE)
+Invoke-Expression (& httpress completions powershell)
 
-# Elvish
-httpress completions elvish >> ~/.config/elvish/rc.elv
+# Elvish: Add to your ~/.config/elvish/rc.elv
+eval (httpress completions elvish | slurp)
 ```
 
 ### As a Library
