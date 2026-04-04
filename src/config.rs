@@ -41,7 +41,7 @@ use bytes::Bytes;
 
 use indicatif::ProgressBar;
 
-use crate::cli::Args;
+use crate::cli::Cli;
 use crate::error::Error;
 use crate::progress::{ProgressFn, create_progress_bar, update_progress_bar};
 
@@ -502,7 +502,9 @@ pub struct BenchConfig {
 
 impl BenchConfig {
     /// Create config from CLI arguments
-    pub fn from_args(args: Args) -> Result<Self, Error> {
+    pub fn from_args(args: Cli) -> Result<Self, Error> {
+        let url = args.url.ok_or_else(|| Error::MissingUrl)?;
+
         let stop_condition = match (args.requests, args.duration) {
             (Some(n), None) => StopCondition::Requests(n),
             (None, Some(d)) => StopCondition::Duration(parse_duration(&d)?),
@@ -513,7 +515,7 @@ impl BenchConfig {
         let headers = parse_headers(&args.headers)?;
 
         let request_config = RequestConfig {
-            url: args.url,
+            url,
             method: args.method,
             headers,
             body: args.body.map(Bytes::from),
