@@ -1,12 +1,17 @@
 use crate::config::HttpMethod;
-use clap::Parser;
+use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
+/// An API benchmark tool built with rust
 #[derive(Parser)]
 #[command(name = "httpress")]
 #[command(version, about = "An API benchmark tool built with rust")]
-pub struct Args {
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
     /// Target URL to bench
-    pub url: String,
+    pub url: Option<String>,
 
     /// HTTP method
     #[arg(short, long, value_enum, default_value = "get")]
@@ -43,4 +48,14 @@ pub struct Args {
     /// Skip TLS certificate verification
     #[arg(short = 'k', long)]
     pub insecure: bool,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Generate shell completion scripts
+    Completions {
+        /// The shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
