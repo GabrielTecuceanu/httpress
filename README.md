@@ -129,6 +129,28 @@ httpress http://localhost:3000 -c 100 -d 10s -o json
 cargo install httpress
 ```
 
+#### Shell Completions
+
+`httpress` can generate shell completion scripts for your shell of choice.
+Once loaded, pressing `Tab` will autocomplete subcommands, flags, and option values.
+
+```bash
+# Bash: Add to your .bashrc
+source <(httpress completions bash)
+
+# Zsh: Add to your .zshrc
+source <(httpress completions zsh)
+
+# Fish: Add to your ~/.config/fish/config.fish
+httpress completions fish | source
+
+# PowerShell: Add to your profile ($PROFILE)
+Invoke-Expression (& httpress completions powershell)
+
+# Elvish: Add to your ~/.config/elvish/rc.elv
+eval (httpress completions elvish | slurp)
+```
+
 ### As a Library
 
 Add to your `Cargo.toml`:
@@ -198,6 +220,7 @@ httpress http://example.com -c 100 -d 10s -o json
 | `-o, --output`      | Output format (text, json)   | text    |
 | `-t, --timeout`     | Request timeout in seconds   | 30      |
 | `-k, --insecure`    | Skip TLS verification        | false   |
+
 
 ## Library Usage
 

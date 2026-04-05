@@ -1,15 +1,24 @@
-use clap::Parser;
-use httpress::cli::Args;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
+use httpress::cli::{Cli, Commands};
 use httpress::client::HttpClient;
 use httpress::config::{BenchConfig, OutputFormat, RequestSource};
 use httpress::executor::Executor;
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
-    let output_format = args.output;
+    let cli = Cli::parse();
+    let output_format = cli.output;
 
-    let config = match BenchConfig::from_args(args) {
+    // Handle the `completions` subcommand before any benchmarking logic.
+    if let Some(Commands::Completions { shell }) = cli.command {
+        let mut cmd = Cli::command();
+        let name = cmd.get_name().to_string();
+        generate(shell, &mut cmd, name, &mut std::io::stdout());
+        std::process::exit(0);
+    }
+
+    let config = match BenchConfig::from_args(cli) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Error: {}", e);
