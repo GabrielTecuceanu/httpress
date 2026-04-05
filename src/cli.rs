@@ -1,6 +1,7 @@
-use crate::config::HttpMethod;
+use crate::config::{HttpMethod, OutputFormat};
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
+
 
 /// An API benchmark tool built with rust
 #[derive(Parser)]
@@ -48,6 +49,10 @@ pub struct Cli {
     /// Skip TLS certificate verification
     #[arg(short = 'k', long)]
     pub insecure: bool,
+
+    /// Output serialized into provided format
+    #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Text)]
+    pub output: OutputFormat,
 }
 
 #[derive(Subcommand)]

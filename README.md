@@ -94,6 +94,33 @@ Status codes:
   200: 325107
 ```
 
+### JSON output
+
+```bash
+httpress http://localhost:3000 -c 100 -d 10s -o json
+```
+
+```json
+{
+  "total_requests": 325107,
+  "successful_requests": 325107,
+  "failed_requests": 0,
+  "duration": "10.00s",
+  "throughput": 32502.23,
+  "latency_min": "175us",
+  "latency_max": "45.12ms",
+  "latency_mean": "2.52ms",
+  "latency_p50": "2.42ms",
+  "latency_p90": "3.91ms",
+  "latency_p95": "4.43ms",
+  "latency_p99": "6.03ms",
+  "status_codes": {
+    "200": 325107
+  },
+  "total_bytes": 650214
+}
+```
+
 ## Installation
 
 ### As a CLI Tool
@@ -174,6 +201,9 @@ httpress http://example.com/api -m POST \
 
 # Run until interrupted (Ctrl+C)
 httpress http://example.com -c 50
+
+# Output results as JSON
+httpress http://example.com -c 100 -d 10s -o json
 ```
 
 ### Options
@@ -187,6 +217,7 @@ httpress http://example.com -c 50
 | `-m, --method`      | HTTP method                  | GET     |
 | `-H, --header`      | HTTP header (repeatable)     | -       |
 | `-b, --body`        | Request body                 | -       |
+| `-o, --output`      | Output format (text, json)   | text    |
 | `-t, --timeout`     | Request timeout in seconds   | 30      |
 | `-k, --insecure`    | Skip TLS verification        | false   |
 
@@ -293,6 +324,6 @@ testing, with a fully configured CI pipeline.
 - [ ] HTTP/2 support
 - [ ] Latency breakdown (DNS, TCP connect, TLS, TTFB)
 - [ ] Warm-up period
-- [ ] Structured output (JSON/CSV)
+- [x] Structured output (JSON)
 - [ ] Multi-step scenarios
 - [ ] HTTP/3 support

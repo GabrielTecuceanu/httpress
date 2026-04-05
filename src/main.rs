@@ -2,12 +2,13 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use httpress::cli::{Cli, Commands};
 use httpress::client::HttpClient;
-use httpress::config::{BenchConfig, RequestSource};
+use httpress::config::{BenchConfig, OutputFormat, RequestSource};
 use httpress::executor::Executor;
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    let output_format = cli.output;
 
     // Handle the `completions` subcommand before any benchmarking logic.
     if let Some(Commands::Completions { shell }) = cli.command {
@@ -29,12 +30,13 @@ async fn main() {
         unreachable!("CLI only creates Static requests")
     };
 
-    println!("Target: {} {:?}", req.url, req.method);
-    println!("Concurrency: {}", config.concurrency);
-    println!("Stop condition: {:?}", config.stop_condition);
+    // Print banner to stderr so stdout stays clean for piped output (e.g. --output json | jq)
+    eprintln!("Target: {} {:?}", req.url, req.method);
+    eprintln!("Concurrency: {}", config.concurrency);
+    eprintln!("Stop condition: {:?}", config.stop_condition);
 
     if let Some(rate) = &config.rate {
-        println!("Rate limit: {} req/s", rate);
+        eprintln!("Rate limit: {} req/s", rate);
     }
 
     let client = match HttpClient::new(config.timeout, config.concurrency, config.insecure) {
@@ -45,7 +47,7 @@ async fn main() {
         }
     };
 
-    println!(
+    eprintln!(
         "\nStarting benchmark with {} workers...",
         config.concurrency
     );
@@ -56,7 +58,16 @@ async fn main() {
     match executor.run().await {
         Ok(results) => {
             pb.finish_and_clear();
-            results.print();
+            match output_format {
+                OutputFormat::Text => results.print(),
+                OutputFormat::Json => match serde_json::to_string_pretty(&results) {
+                    Ok(json) => println!("{}", json),
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        std::process::exit(1);
+                    }
+                },
+            }
         }
         Err(e) => {
             pb.finish_and_clear();

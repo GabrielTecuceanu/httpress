@@ -484,6 +484,16 @@ pub enum RequestSource {
     Dynamic(RequestGenerator),
 }
 
+/// Output format for benchmark results.
+///
+/// Controls how results are rendered when using the `--output`/`-o` CLI flag.
+/// Defaults to [`OutputFormat::Text`].
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum OutputFormat {
+    Text,
+    Json,
+}
+
 /// Benchmark configuration
 #[derive(Clone)]
 pub struct BenchConfig {

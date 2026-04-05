@@ -36,6 +36,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use serde::{Serialize, Serializer};
+
 /// Result of a single HTTP request
 pub struct RequestResult {
     pub latency: Duration,
@@ -74,7 +76,7 @@ pub struct RequestResult {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BenchmarkResults {
     /// Total number of requests executed.
     pub total_requests: usize,
@@ -86,30 +88,38 @@ pub struct BenchmarkResults {
     pub failed_requests: usize,
 
     /// Actual duration of the benchmark.
+    #[serde(serialize_with = "serialize_duration")]
     pub duration: Duration,
 
     /// Throughput in requests per second (total_requests / duration).
     pub throughput: f64,
 
     /// Minimum request latency observed.
+    #[serde(serialize_with = "serialize_duration")]
     pub latency_min: Duration,
 
     /// Maximum request latency observed.
+    #[serde(serialize_with = "serialize_duration")]
     pub latency_max: Duration,
 
     /// Mean (average) request latency.
+    #[serde(serialize_with = "serialize_duration")]
     pub latency_mean: Duration,
 
     /// 50th percentile (median) request latency.
+    #[serde(serialize_with = "serialize_duration")]
     pub latency_p50: Duration,
 
     /// 90th percentile request latency.
+    #[serde(serialize_with = "serialize_duration")]
     pub latency_p90: Duration,
 
     /// 95th percentile request latency.
+    #[serde(serialize_with = "serialize_duration")]
     pub latency_p95: Duration,
 
     /// 99th percentile request latency.
+    #[serde(serialize_with = "serialize_duration")]
     pub latency_p99: Duration,
 
     /// Distribution of HTTP status codes and their counts.
@@ -308,6 +318,10 @@ fn percentile(sorted: &[Duration], p: usize) -> Duration {
     sorted[idx]
 }
 
+fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&format_duration(*d))
+}
+
 fn format_duration(d: Duration) -> String {
     let micros = d.as_micros();
     if micros < 1000 {
@@ -316,5 +330,30 @@ fn format_duration(d: Duration) -> String {
         format!("{:.2}ms", micros as f64 / 1000.0)
     } else {
         format!("{:.2}s", d.as_secs_f64())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_duration_microseconds() {
+        assert_eq!(format_duration(Duration::from_micros(500)), "500us");
+        assert_eq!(format_duration(Duration::from_micros(0)), "0us");
+        assert_eq!(format_duration(Duration::from_micros(999)), "999us");
+    }
+
+    #[test]
+    fn format_duration_milliseconds() {
+        assert_eq!(format_duration(Duration::from_micros(1000)), "1.00ms");
+        assert_eq!(format_duration(Duration::from_millis(12)), "12.00ms");
+        assert_eq!(format_duration(Duration::from_micros(999_999)), "1000.00ms");
+    }
+
+    #[test]
+    fn format_duration_seconds() {
+        assert_eq!(format_duration(Duration::from_secs(1)), "1.00s");
+        assert_eq!(format_duration(Duration::from_millis(2500)), "2.50s");
     }
 }
