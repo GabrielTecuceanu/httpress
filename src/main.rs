@@ -59,7 +59,11 @@ async fn main() {
         Ok(results) => {
             pb.finish_and_clear();
             match output_format {
-                OutputFormat::Text => results.print(),
+                OutputFormat::Text => {
+                    results.print();
+                    // Print latency histogram after benchmark results
+                    results.print_histogram();
+                }
                 OutputFormat::Json => match serde_json::to_string_pretty(&results) {
                     Ok(json) => println!("{}", json),
                     Err(e) => {
