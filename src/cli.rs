@@ -52,6 +52,15 @@ pub struct Cli {
     /// Output serialized into provided format
     #[arg(short = 'o', long, value_enum, default_value_t = OutputFormat::Text)]
     pub output: OutputFormat,
+
+    /// Percentiles to capture
+    #[arg(
+        long,
+        value_name = "percentiles",
+        value_delimiter = ',',
+        default_value = "50.0,90.0,95.0,99.0"
+    )]
+    pub percentiles: Vec<f64>,
 }
 
 #[derive(Subcommand)]

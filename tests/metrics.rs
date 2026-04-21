@@ -104,16 +104,7 @@ async fn test_json_serialization_has_readable_durations() {
 
     let json: Value = serde_json::to_value(&results).unwrap();
 
-    let duration_fields = [
-        "duration",
-        "latency_min",
-        "latency_max",
-        "latency_mean",
-        "latency_p50",
-        "latency_p90",
-        "latency_p95",
-        "latency_p99",
-    ];
+    let duration_fields = ["duration", "latency_min", "latency_max", "latency_mean"];
 
     for field in duration_fields {
         let val = &json[field];
@@ -122,6 +113,27 @@ async fn test_json_serialization_has_readable_durations() {
             "expected '{}' to be a string, got: {}",
             field,
             val
+        );
+    }
+
+    // Check dynamic field (latency_percentiles)
+    let percentiles = json["latency_percentiles"]
+        .as_object()
+        .expect("latency_percentiles must be an object");
+    assert!(
+        !percentiles.is_empty(),
+        "latency_percentiles should not be empty"
+    );
+    for (_, value) in percentiles {
+        // assert!(
+        //     ke
+        //     "percentile key should be a number, got: {}",
+        //     key
+        // );
+        assert!(
+            value.is_string(),
+            "latency value should be a human-readable string, got: {}",
+            value
         );
     }
 }

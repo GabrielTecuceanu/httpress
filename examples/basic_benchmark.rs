@@ -24,7 +24,10 @@ async fn main() -> Result<()> {
         (results.successful_requests as f64 / results.total_requests as f64) * 100.0
     );
     println!("Throughput: {:.2} req/s", results.throughput);
-    println!("p99 latency: {:?}", results.latency_p99);
+    println!(
+        "p99 latency: {:?}",
+        results.latency_percentiles.iter().find(|(p, _)| *p == 99.0)
+    );
 
     Ok(())
 }

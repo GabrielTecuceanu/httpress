@@ -340,7 +340,7 @@ impl Executor {
 
         let elapsed = start_time.elapsed();
 
-        Ok(metrics.into_results(elapsed))
+        Ok(metrics.into_results(elapsed, &self.config.percentiles))
     }
 
     /// Spawn a rate coordinator task if dynamic rate is configured.

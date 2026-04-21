@@ -25,7 +25,7 @@
 //!
 //! // Or access individual metrics
 //! println!("Throughput: {:.2} req/s", results.throughput);
-//! println!("p99 latency: {:?}", results.latency_p99);
+//! println!("p99 latency: {:?}", results.latency_percentiles.iter().find(|(p, _)| *p == 99.0));
 //! println!("Success rate: {:.2}%",
 //!     (results.successful_requests as f64 / results.total_requests as f64) * 100.0
 //! );
@@ -72,7 +72,7 @@ pub struct RequestResult {
 /// println!("Success rate: {:.2}%",
 ///     (results.successful_requests as f64 / results.total_requests as f64) * 100.0
 /// );
-/// println!("p99 latency: {:?}", results.latency_p99);
+/// println!("p99 latency: {:?}", results.latency_percentiles.iter().find(|(p, _)| *p == 99.0));
 /// # Ok(())
 /// # }
 /// ```
@@ -106,21 +106,9 @@ pub struct BenchmarkResults {
     #[serde(serialize_with = "serialize_duration")]
     pub latency_mean: Duration,
 
-    /// 50th percentile (median) request latency.
-    #[serde(serialize_with = "serialize_duration")]
-    pub latency_p50: Duration,
-
-    /// 90th percentile request latency.
-    #[serde(serialize_with = "serialize_duration")]
-    pub latency_p90: Duration,
-
-    /// 95th percentile request latency.
-    #[serde(serialize_with = "serialize_duration")]
-    pub latency_p95: Duration,
-
-    /// 99th percentile request latency.
-    #[serde(serialize_with = "serialize_duration")]
-    pub latency_p99: Duration,
+    /// Mean (average) request latency.
+    #[serde(serialize_with = "serialize_percentile")]
+    pub latency_percentiles: Vec<(f64, Duration)>,
 
     /// Distribution of HTTP status codes and their counts.
     pub status_codes: HashMap<u16, usize>,
@@ -191,13 +179,12 @@ impl BenchmarkResults {
         );
 
         println!("\nLatency:");
-        println!("  Min:    {}", format_duration(self.latency_min));
-        println!("  Max:    {}", format_duration(self.latency_max));
-        println!("  Mean:   {}", format_duration(self.latency_mean));
-        println!("  p50:    {}", format_duration(self.latency_p50));
-        println!("  p90:    {}", format_duration(self.latency_p90));
-        println!("  p95:    {}", format_duration(self.latency_p95));
-        println!("  p99:    {}", format_duration(self.latency_p99));
+        println!("  Min:    {}", format_duration(&self.latency_min));
+        println!("  Max:    {}", format_duration(&self.latency_max));
+        println!("  Mean:   {}", format_duration(&self.latency_mean));
+        for (percentile, duration) in &self.latency_percentiles {
+            println!("  p{}:    {}", percentile, format_duration(duration));
+        }
 
         if !self.status_codes.is_empty() {
             println!("\nStatus codes:");
@@ -348,44 +335,24 @@ impl Metrics {
     }
 
     /// Convert raw metrics into computed results
-    pub fn into_results(mut self, elapsed: Duration) -> BenchmarkResults {
+    pub fn into_results(mut self, elapsed: Duration, percentiles: &[f64]) -> BenchmarkResults {
         self.latencies.sort();
         let sorted = &self.latencies;
 
-        let (
-            latency_min,
-            latency_max,
-            latency_mean,
-            latency_p50,
-            latency_p90,
-            latency_p95,
-            latency_p99,
-        ) = if sorted.is_empty() {
-            (
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
-            )
+        let (latency_min, latency_max, latency_mean) = if sorted.is_empty() {
+            (Duration::ZERO, Duration::ZERO, Duration::ZERO)
         } else {
             let min = *sorted.first().unwrap();
             let max = *sorted.last().unwrap();
             let sum: Duration = sorted.iter().sum();
             let mean = sum / sorted.len() as u32;
-
-            (
-                min,
-                max,
-                mean,
-                percentile(sorted, 50),
-                percentile(sorted, 90),
-                percentile(sorted, 95),
-                percentile(sorted, 99),
-            )
+            (min, max, mean)
         };
+
+        let latency_percentiles: Vec<(f64, Duration)> = percentiles
+            .iter()
+            .map(|&p| (p, percentile(sorted, p)))
+            .collect();
 
         BenchmarkResults {
             total_requests: self.total,
@@ -396,10 +363,7 @@ impl Metrics {
             latency_min,
             latency_max,
             latency_mean,
-            latency_p50,
-            latency_p90,
-            latency_p95,
-            latency_p99,
+            latency_percentiles,
             status_codes: self.status_codes,
             total_bytes: self.total_bytes,
             latencies: self.latencies,
@@ -413,16 +377,29 @@ impl Default for Metrics {
     }
 }
 
-fn percentile(sorted: &[Duration], p: usize) -> Duration {
-    let idx = (sorted.len() * p / 100).saturating_sub(1).max(0);
-    sorted[idx]
+fn percentile(sorted: &[Duration], p: f64) -> Duration {
+    if sorted.is_empty() {
+        return Duration::ZERO;
+    }
+    let idx = ((sorted.len() as f64 * p / 100.0) - 1.0).max(0.0) as usize;
+    sorted[idx.min(sorted.len() - 1)]
+}
+
+fn serialize_percentile<S: Serializer>(v: &[(f64, Duration)], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = s.serialize_map(Some(v.len()))?;
+    for (percentile, duration) in v {
+        let key = format!("p{}", percentile); // Format key to p50 p99 etc.
+        map.serialize_entry(&key, &format_duration(duration))?;
+    }
+    map.end()
 }
 
 fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&format_duration(*d))
+    s.serialize_str(&format_duration(d))
 }
 
-fn format_duration(d: Duration) -> String {
+fn format_duration(d: &Duration) -> String {
     let micros = d.as_micros();
     if micros < 1000 {
         format!("{}us", micros)
@@ -439,21 +416,24 @@ mod tests {
 
     #[test]
     fn format_duration_microseconds() {
-        assert_eq!(format_duration(Duration::from_micros(500)), "500us");
-        assert_eq!(format_duration(Duration::from_micros(0)), "0us");
-        assert_eq!(format_duration(Duration::from_micros(999)), "999us");
+        assert_eq!(format_duration(&Duration::from_micros(500)), "500us");
+        assert_eq!(format_duration(&Duration::from_micros(0)), "0us");
+        assert_eq!(format_duration(&Duration::from_micros(999)), "999us");
     }
 
     #[test]
     fn format_duration_milliseconds() {
-        assert_eq!(format_duration(Duration::from_micros(1000)), "1.00ms");
-        assert_eq!(format_duration(Duration::from_millis(12)), "12.00ms");
-        assert_eq!(format_duration(Duration::from_micros(999_999)), "1000.00ms");
+        assert_eq!(format_duration(&Duration::from_micros(1000)), "1.00ms");
+        assert_eq!(format_duration(&Duration::from_millis(12)), "12.00ms");
+        assert_eq!(
+            format_duration(&Duration::from_micros(999_999)),
+            "1000.00ms"
+        );
     }
 
     #[test]
     fn format_duration_seconds() {
-        assert_eq!(format_duration(Duration::from_secs(1)), "1.00s");
-        assert_eq!(format_duration(Duration::from_millis(2500)), "2.50s");
+        assert_eq!(format_duration(&Duration::from_secs(1)), "1.00s");
+        assert_eq!(format_duration(&Duration::from_millis(2500)), "2.50s");
     }
 }
