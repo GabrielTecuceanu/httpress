@@ -176,7 +176,21 @@ async fn test_latency_metrics_populated() {
     // Sanity checks
     assert!(results.latency_min <= results.latency_mean);
     assert!(results.latency_mean <= results.latency_max);
-    assert!(results.latency_p50 <= results.latency_p99);
+
+    // Each subsequent percentile must be greater or equal
+    let percentiles = &results.latency_percentiles;
+    for window in percentiles.windows(2) {
+        let (p_lo, d_lo) = window[0];
+        let (p_hi, d_hi) = window[1];
+        assert!(
+            d_lo <= d_hi,
+            "p{} ({:?}) > p{} ({:?}) — percentiles not monotonic",
+            p_lo,
+            d_lo,
+            p_hi,
+            d_hi
+        );
+    }
 }
 
 #[tokio::test]

@@ -98,6 +98,7 @@ pub struct BenchmarkBuilder {
     max_retries: usize,
     show_progress: bool,
     insecure: bool,
+    percentiles: Vec<f64>,
 }
 
 impl BenchmarkBuilder {
@@ -134,6 +135,7 @@ impl BenchmarkBuilder {
             max_retries: 3,
             show_progress: false,
             insecure: false,
+            percentiles: vec![50.0, 90.0, 95.0, 99.9],
         }
     }
 
@@ -564,6 +566,40 @@ impl BenchmarkBuilder {
         self
     }
 
+    /// Set the latency percentiles to compute (default: `[50.0, 90.0, 95.0, 99.0]`).
+    ///
+    /// Accepts any `f64` values in the range `(0.0, 100.0]`. Results are available
+    /// in [`BenchmarkResults::latency_percentiles`] as a `Vec<(f64, Duration)>`,
+    /// ordered by the percentile values provided.
+    ///
+    /// Useful for SLO-sensitive benchmarks that require fine-grained percentiles
+    /// such as p99.9 or p99.99.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use httpress::Benchmark;
+    /// # #[tokio::main]
+    /// # async fn main() -> httpress::Result<()> {
+    /// let results = Benchmark::builder()
+    ///     .url("http://localhost:3000")
+    ///     .requests(10000)
+    ///     .percentiles(vec![50.0, 90.0, 99.0, 99.9])
+    ///     .build()?
+    ///     .run()
+    ///     .await?;
+    ///
+    /// for (p, latency) in &results.latency_percentiles {
+    ///     println!("p{}: {:?}", p, latency);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn percentiles(mut self, percentiles: Vec<f64>) -> Self {
+        self.percentiles = percentiles;
+        self
+    }
+
     /// Build the benchmark.
     ///
     /// Validates the configuration and constructs a [`Benchmark`] ready to run.
@@ -652,6 +688,7 @@ impl BenchmarkBuilder {
             max_retries: self.max_retries,
             progress_fn: None,
             insecure: self.insecure,
+            percentiles: self.percentiles,
         };
 
         let (config, progress_bar) = if self.show_progress {
@@ -744,7 +781,7 @@ impl Benchmark {
     /// let results = benchmark.run().await?;
     ///
     /// println!("Throughput: {:.2} req/s", results.throughput);
-    /// println!("p99 latency: {:?}", results.latency_p99);
+    /// println!("p99 latency: {:?}", results.latency_percentiles.iter().find(|(p, _)| *p == 99.0));
     /// # Ok(())
     /// # }
     /// ```

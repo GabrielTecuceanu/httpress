@@ -508,6 +508,7 @@ pub struct BenchConfig {
     pub max_retries: usize,
     pub progress_fn: Option<ProgressFn>,
     pub insecure: bool,
+    pub percentiles: Vec<f64>,
 }
 
 impl BenchConfig {
@@ -543,6 +544,7 @@ impl BenchConfig {
             max_retries: 3,
             progress_fn: None,
             insecure: args.insecure,
+            percentiles: args.percentiles,
         })
     }
 
