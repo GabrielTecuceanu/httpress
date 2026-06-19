@@ -192,3 +192,54 @@ async fn test_throughput_calculated() {
         calculated_throughput
     );
 }
+
+#[tokio::test]
+async fn test_dns_error() {
+    let results = Benchmark::builder()
+        .url("http://this-domain-definitely-does-not-exist-12345.com") // Invalid domain
+        .requests(3)
+        .concurrency(1)
+        .build()
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+
+    assert_eq!(results.total_requests, 3);
+    assert_eq!(results.failed_requests, 3);
+    assert_eq!(results.successful_requests, 0);
+}
+
+#[tokio::test]
+async fn test_tls_error() {
+    let results = Benchmark::builder()
+        .url("https://expired.badssl.com") // Invalid TLS certificate
+        .requests(3)
+        .concurrency(1)
+        .build()
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+
+    assert_eq!(results.total_requests, 3);
+    assert_eq!(results.failed_requests, 3);
+    assert_eq!(results.successful_requests, 0);
+}
+
+#[tokio::test]
+async fn test_connection_refused_classification() {
+    let results = Benchmark::builder()
+        .url("http://127.0.0.1:59998/") // No server on this port
+        .requests(3)
+        .concurrency(1)
+        .build()
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+
+    assert_eq!(results.total_requests, 3);
+    assert_eq!(results.failed_requests, 3);
+    assert_eq!(results.successful_requests, 0);
+}
