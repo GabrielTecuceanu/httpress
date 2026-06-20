@@ -36,8 +36,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use serde::{Serialize, Serializer};
 use crate::error::Error;
+use serde::{Serialize, Serializer};
 
 /// Result of a single HTTP request
 pub struct RequestResult {
@@ -202,7 +202,7 @@ impl BenchmarkResults {
         if !self.errors.is_empty() {
             println!("\nErrors:\n");
             let mut errors: Vec<_> = self.errors.iter().collect();
-            errors.sort_by_key(|(_, count)|std::cmp::Reverse(*count));
+            errors.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
             for (error_type, count) in errors {
                 println!("  {}: {}", error_type, count);
             }

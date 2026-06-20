@@ -5,13 +5,12 @@ use http_body_util::{BodyExt, Full};
 use hyper::Request;
 use hyper_tls::HttpsConnector;
 use hyper_util::client::legacy::Client;
- use hyper_util::client::legacy::Error as HyperError;
+use hyper_util::client::legacy::Error as HyperError;
 use hyper_util::rt::TokioExecutor;
 
 use crate::config::{BenchConfig, HttpMethod, RequestConfig, RequestContext, RequestSource};
-use crate::error::{Result, Error};
+use crate::error::{Error, Result};
 use std::error::Error as StdError;
-
 
 /// HTTP client wrapper for benchmark requests
 pub struct HttpClient {
@@ -140,8 +139,11 @@ impl HttpClient {
                     "dns",
                     "no such host",
                     "temporary failure in name resolution",
-                    ];
-                if DNS_PATTERNS.iter().any(|pattern| io_err_msg.contains(pattern)){
+                ];
+                if DNS_PATTERNS
+                    .iter()
+                    .any(|pattern| io_err_msg.contains(pattern))
+                {
                     return Error::DnsError;
                 }
                 return match io_err.kind() {
@@ -149,7 +151,6 @@ impl HttpClient {
                     std::io::ErrorKind::ConnectionReset => Error::ConnectionReset,
                     std::io::ErrorKind::TimedOut => Error::Timeout,
                     _ => Error::Other(io_err.to_string()),
-
                 };
             }
             source = err.source();

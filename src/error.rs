@@ -104,7 +104,6 @@ pub enum Error {
     #[error("Connection reset")]
     ConnectionReset,
 
-
     /// Uncategorized error occurred.
     ///
     /// This is a catch-all for errors that don't fit into other categories.
