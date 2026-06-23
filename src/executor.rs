@@ -72,11 +72,10 @@ impl WorkerContext {
                 .client
                 .execute_for_worker(&self.config, self.worker_id, request_number)
                 .await
-                //.unwrap_or_default();
-                {
-                    Ok((status, bytes)) => (status, bytes, None),
-                    Err(e) => (None, 0, Some(e))
-                };
+            {
+                Ok((status, bytes)) => (status, bytes, None),
+                Err(e) => (None, 0, Some(e)),
+            };
             let latency = start.elapsed();
 
             // Execute after_request hooks

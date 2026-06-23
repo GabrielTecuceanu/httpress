@@ -21,6 +21,8 @@ async fn test_connection_refused() {
     assert_eq!(results.total_requests, 5);
     assert_eq!(results.failed_requests, 5);
     assert_eq!(results.successful_requests, 0);
+    //Confirms if "Connection refused" is classified
+    assert_eq!(results.errors.get("Connection refused").copied(), Some(5));
 }
 
 #[tokio::test]
@@ -48,6 +50,8 @@ async fn test_request_timeout() {
         "Latency max {:?} should be less than 500ms",
         results.latency_max
     );
+    // Confirms if "Request timeout" is classified
+    assert_eq!(results.errors.get("Request timeout").copied(), Some(3));
 }
 
 #[tokio::test]
@@ -208,6 +212,10 @@ async fn test_dns_error() {
     assert_eq!(results.total_requests, 3);
     assert_eq!(results.failed_requests, 3);
     assert_eq!(results.successful_requests, 0);
+    assert_eq!(
+        results.errors.get("DNS resolution failed").copied(),
+        Some(3)
+    );
 }
 
 #[tokio::test]
@@ -225,21 +233,11 @@ async fn test_tls_error() {
     assert_eq!(results.total_requests, 3);
     assert_eq!(results.failed_requests, 3);
     assert_eq!(results.successful_requests, 0);
-}
-
-#[tokio::test]
-async fn test_connection_refused_classification() {
-    let results = Benchmark::builder()
-        .url("http://127.0.0.1:59998/") // No server on this port
-        .requests(3)
-        .concurrency(1)
-        .build()
-        .unwrap()
-        .run()
-        .await
-        .unwrap();
-
-    assert_eq!(results.total_requests, 3);
-    assert_eq!(results.failed_requests, 3);
-    assert_eq!(results.successful_requests, 0);
+    assert!(
+        results
+            .errors
+            .keys()
+            .any(|k| k.contains("TLS handshake failed")),
+        "Expected TLS handshake failed error"
+    );
 }

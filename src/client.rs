@@ -101,8 +101,6 @@ impl HttpClient {
 
         let response = tokio::time::timeout(self.timeout, self.client.request(request))
             .await
-            //.map_err(|_| crate::error::Error::Timeout)?
-            //.map_err(|e| crate::error::Error::Http(e.into()))?;
             .map_err(|_| Error::Timeout)?
             .map_err(|e| self.classify_error(e))?;
 
