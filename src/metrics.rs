@@ -36,6 +36,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::error::Error;
 use serde::{Serialize, Serializer};
 
 /// Result of a single HTTP request
@@ -43,6 +44,7 @@ pub struct RequestResult {
     pub latency: Duration,
     pub status: Option<u16>,
     pub bytes: usize,
+    pub error: Option<Error>,
 }
 
 /// Computed benchmark results with detailed metrics.
@@ -119,6 +121,8 @@ pub struct BenchmarkResults {
     /// Raw latency data for histogram computation (not serialized).
     #[serde(skip)]
     latencies: Vec<Duration>,
+
+    pub errors: HashMap<String, usize>,
 }
 
 impl BenchmarkResults {
@@ -192,6 +196,15 @@ impl BenchmarkResults {
             codes.sort_by_key(|(k, _)| *k);
             for (code, count) in codes {
                 println!("  {}: {}", code, count);
+            }
+        }
+        // Print Errors
+        if !self.errors.is_empty() {
+            println!("\nErrors:\n");
+            let mut errors: Vec<_> = self.errors.iter().collect();
+            errors.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+            for (error_type, count) in errors {
+                println!("  {}: {}", error_type, count);
             }
         }
     }
@@ -292,6 +305,7 @@ pub struct Metrics {
     pub latencies: Vec<Duration>,
     pub status_codes: HashMap<u16, usize>,
     pub total_bytes: u64,
+    pub errors: HashMap<String, usize>,
 }
 
 /// Maximum width for histogram bars in ASCII display
@@ -309,6 +323,7 @@ impl Metrics {
             latencies: Vec::new(),
             status_codes: HashMap::new(),
             total_bytes: 0,
+            errors: HashMap::new(),
         }
     }
 
@@ -319,6 +334,7 @@ impl Metrics {
             latencies: Vec::with_capacity(capacity),
             status_codes: HashMap::new(),
             total_bytes: 0,
+            errors: HashMap::new(),
         }
     }
 
@@ -330,6 +346,9 @@ impl Metrics {
             if (200..300).contains(&status) {
                 self.success += 1;
             }
+        }
+        if let Some(err) = &result.error {
+            *self.errors.entry(err.to_string()).or_insert(0) += 1;
         }
         self.latencies.push(result.latency);
     }
@@ -367,6 +386,7 @@ impl Metrics {
             status_codes: self.status_codes,
             total_bytes: self.total_bytes,
             latencies: self.latencies,
+            errors: self.errors,
         }
     }
 }

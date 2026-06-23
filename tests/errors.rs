@@ -21,6 +21,8 @@ async fn test_connection_refused() {
     assert_eq!(results.total_requests, 5);
     assert_eq!(results.failed_requests, 5);
     assert_eq!(results.successful_requests, 0);
+    //Confirms if "Connection refused" is classified
+    assert_eq!(results.errors.get("Connection refused").copied(), Some(5));
 }
 
 #[tokio::test]
@@ -48,6 +50,8 @@ async fn test_request_timeout() {
         "Latency max {:?} should be less than 500ms",
         results.latency_max
     );
+    // Confirms if "Request timeout" is classified
+    assert_eq!(results.errors.get("Request timeout").copied(), Some(3));
 }
 
 #[tokio::test]
@@ -190,5 +194,50 @@ async fn test_throughput_calculated() {
         "Throughput mismatch: reported {} vs calculated {}",
         results.throughput,
         calculated_throughput
+    );
+}
+
+#[tokio::test]
+async fn test_dns_error() {
+    let results = Benchmark::builder()
+        .url("http://this-domain-definitely-does-not-exist-12345.com") // Invalid domain
+        .requests(3)
+        .concurrency(1)
+        .build()
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+
+    assert_eq!(results.total_requests, 3);
+    assert_eq!(results.failed_requests, 3);
+    assert_eq!(results.successful_requests, 0);
+    assert_eq!(
+        results.errors.get("DNS resolution failed").copied(),
+        Some(3)
+    );
+}
+
+#[tokio::test]
+async fn test_tls_error() {
+    let results = Benchmark::builder()
+        .url("https://expired.badssl.com") // Invalid TLS certificate
+        .requests(3)
+        .concurrency(1)
+        .build()
+        .unwrap()
+        .run()
+        .await
+        .unwrap();
+
+    assert_eq!(results.total_requests, 3);
+    assert_eq!(results.failed_requests, 3);
+    assert_eq!(results.successful_requests, 0);
+    assert!(
+        results
+            .errors
+            .keys()
+            .any(|k| k.contains("TLS handshake failed")),
+        "Expected TLS handshake failed error"
     );
 }

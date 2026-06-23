@@ -75,6 +75,41 @@ pub enum Error {
     /// This wraps standard I/O errors.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Connection was refused by the target server.
+    ///
+    /// This occurs when the server is not listening on the specified port,
+    /// a firewall is blocking the connection, or the host is unreachable.
+    #[error("Connection refused")]
+    ConnectionRefused,
+
+    /// DNS resolution failed for the target hostname.
+    ///
+    /// This occurs when the hostname cannot be resolved to an IP address,
+    /// possibly due to an invalid hostname, DNS server issues, or network problems.
+    #[error("DNS resolution failed")]
+    DnsError,
+
+    /// TLS/SSL handshake failed.
+    ///
+    /// This occurs when the server's TLS certificate is invalid, self-signed,
+    /// expired, or there's a protocol version mismatch.
+    #[error("TLS handshake failed: {0}")]
+    TlsError(String),
+
+    /// Connection was reset by the server or an intermediate device.
+    ///
+    /// This occurs when the connection is unexpectedly closed, possibly due to
+    /// server load balancers dropping connections, network issues, or server crashes.
+    #[error("Connection reset")]
+    ConnectionReset,
+
+    /// Uncategorized error occurred.
+    ///
+    /// This is a catch-all for errors that don't fit into other categories.
+    /// The error message contains details about what went wrong.
+    #[error("Error: {0}")]
+    Other(String),
 }
 
 /// Result type alias for httpress operations.

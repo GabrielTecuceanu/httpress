@@ -47,6 +47,7 @@ impl WorkerContext {
                             latency: Duration::ZERO,
                             status: None,
                             bytes: 0,
+                            error: None,
                         };
                     }
                     HookAction::Retry => {
@@ -59,6 +60,7 @@ impl WorkerContext {
                                 latency: Duration::ZERO,
                                 status: None,
                                 bytes: 0,
+                                error: None,
                             };
                         }
                     }
@@ -66,11 +68,14 @@ impl WorkerContext {
             }
 
             let start = Instant::now();
-            let (status, bytes) = self
+            let (status, bytes, error) = match self
                 .client
                 .execute_for_worker(&self.config, self.worker_id, request_number)
                 .await
-                .unwrap_or_default();
+            {
+                Ok((status, bytes)) => (status, bytes, None),
+                Err(e) => (None, 0, Some(e)),
+            };
             let latency = start.elapsed();
 
             // Execute after_request hooks
@@ -88,6 +93,7 @@ impl WorkerContext {
                         latency,
                         status,
                         bytes,
+                        error,
                     };
                 }
                 HookAction::Abort => {
@@ -96,6 +102,7 @@ impl WorkerContext {
                         latency,
                         status: None,
                         bytes: 0,
+                        error: None,
                     };
                 }
                 HookAction::Retry => {
@@ -108,6 +115,7 @@ impl WorkerContext {
                             latency,
                             status,
                             bytes,
+                            error,
                         };
                     }
                 }
