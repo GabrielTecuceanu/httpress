@@ -267,12 +267,10 @@ impl BenchmarkResults {
         let mut counts = vec![0u64; buckets.len() + 1];
 
         for latency in &self.latencies {
-            let latency_ms = latency.as_millis() as u64;
             let mut bucket_idx = buckets.len(); // Default to last bucket (overflow)
 
             for (i, bucket) in buckets.iter().enumerate() {
-                let bucket_ms = bucket.as_millis() as u64;
-                if latency_ms <= bucket_ms {
+                if latency <= bucket {
                     bucket_idx = i;
                     break;
                 }
@@ -455,5 +453,39 @@ mod tests {
     fn format_duration_seconds() {
         assert_eq!(format_duration(&Duration::from_secs(1)), "1.00s");
         assert_eq!(format_duration(&Duration::from_millis(2500)), "2.50s");
+    }
+
+    #[test]
+    fn histogram_classifies_fractional_millisecond_latencies() {
+        let mut metrics = Metrics::new();
+        metrics.record(RequestResult {
+            latency: Duration::from_micros(1_750),
+            status: Some(200),
+            bytes: 10,
+            error: None,
+        });
+        metrics.record(RequestResult {
+            latency: Duration::from_micros(5_900),
+            status: Some(200),
+            bytes: 10,
+            error: None,
+        });
+
+        let results = metrics.into_results(Duration::from_secs(1), &[50.0]);
+        let buckets = [
+            Duration::from_millis(1),
+            Duration::from_millis(5),
+            Duration::from_millis(10),
+        ];
+
+        assert_eq!(
+            results.compute_histogram(&buckets),
+            vec![
+                ("0-1ms".to_owned(), 0),
+                ("1-5ms".to_owned(), 1),
+                ("5-10ms".to_owned(), 1),
+                ("10ms+".to_owned(), 0),
+            ]
+        );
     }
 }
